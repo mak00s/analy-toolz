@@ -161,8 +161,8 @@ def _is_service_account_json(file):
 def _is_service_account_key(key_json_text):
   """Return true if the provided text is a JSON service credentials file."""
   try:
-    key_obj = _json.loads(key_json_text)
-  except _json.JSONDecodeError:
+    key_obj = json.loads(key_json_text)
+  except json.JSONDecodeError:
     return False
   if not key_obj or key_obj.get('type', '') != 'service_account':
     return False
