@@ -44,7 +44,10 @@ class GoogleApi(object):
         return self._service
 
     def auth(self, file: str):
+        if not os.path.isdir(self.cache_dir):
+            os.makedirs(self.cache_dir)
         cache_path = os.path.join(self.cache_dir, self.credential_cache_file)
+
         credentials = get_credentials(file, self.scopes, cache_path)
 
         self.credentials = credentials
@@ -119,7 +122,7 @@ class MethodHelper(object):
         self.path = path if path is not None else []
         if name is not None:
             self.path.append(name)
-        print("constructor %s", name)
+        # print("constructor %s", name)
 
     def execute(self, *args, **kwargs):
         """execute service api"""
@@ -204,8 +207,6 @@ def get_credentials(file: str, scopes, cache_path: str):
             credentials = _run_auth_flow(file, scopes)
             # save cache
             print(f"saving cache to {cache_path}")
-            if not os.path.isdir(self.cache_dir):
-                os.makedirs(self.cache_dir)
             with open(cache_path, 'w') as file:
                 file.write(credentials.to_json())
 
