@@ -15,5 +15,5 @@ def get_auth_type(file):
     elif 'installed' in data.keys():
         type = 'OAuth2'
     else:
-        type = "unknown")
+        type = "unknown"
     return type
