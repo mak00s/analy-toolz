@@ -43,23 +43,9 @@ class GoogleApi(object):
         print("Reusing the service.")
         return self._service
 
-    def auth(self, file):
+    def auth(self, file: str):
         cache_path = os.path.join(self.cache_dir, self.credential_cache_file)
-
-        if os.path.isfile(cache_path):
-            # use cache
-            print(f"loading cache from {cache_path}")
-            credentials = Credentials.from_authorized_user_file(cache_path, scopes=self.scopes)
-        else:
-            # get credentials
-            credentials = get_credentials(file, self.scopes)
-
-            # save cache
-            print(f"saving cache to {cache_path}")
-            if not os.path.isdir(self.cache_dir):
-                os.makedirs(self.cache_dir)
-            with open(cache_path, 'w') as file:
-                file.write(credentials.to_json())
+        credentials = get_credentials(file, self.scopes, cache_path)
 
         self.credentials = credentials
         self._service = None
@@ -104,6 +90,16 @@ class GoogleApi(object):
         :return:
         """
         return getattr(MethodHelper(self, self.service), name)
+
+    @classmethod
+    def ga_reporting(cls, version="v4"):
+        """Google Analytics Reporting API v4"""
+        return GoogleApi("analyticsreporting", version, ["https://www.googleapis.com/auth/analytics.readonly"])
+
+    @classmethod
+    def ga_management(cls, version="v3"):
+        """Google Analytics Management API v3"""
+        return GoogleApi("analytics", version, ["https://www.googleapis.com/auth/analytics.readonly"])
 
 
 class MethodHelper(object):
@@ -154,8 +150,7 @@ class MethodHelper(object):
 def _is_service_account_json(file):
     """Return true if the provided JSON file is for a service account."""
     with open(file, 'r') as f:
-        data = json.load(f)
-        return _is_service_account_key(data)
+        return _is_service_account_key(f.read())
 
 
 def _is_service_account_key(key_json_text):
@@ -195,12 +190,17 @@ def _run_auth_flow(client_secret_file, scopes, config=None):
     return credentials
 
 
-def get_credentials(file, scopes):
+def get_credentials(file: str, scopes, cache_path: str):
     """Get Credentials
     """
     if _is_service_account_json(file):
         credentials = service_account.Credentials.from_service_account_file(file)
     else:
-        credentials = _run_auth_flow(file, scopes)
+        if os.path.isfile(cache_path):
+            # use cache
+            print(f"loading cache from {cache_path}")
+            credentials = Credentials.from_authorized_user_file(cache_path, scopes=scopes)
+        else:
+            credentials = _run_auth_flow(file, scopes)
 
     return credentials
