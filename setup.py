@@ -4,7 +4,7 @@ with open("README.md", "r") as f:
     long_description = f.read()
 
 setuptools.setup(
-    name='analy-toolz',
+    name='analy_toolz',
     version='0.0.1',
     author='Mak Shimizu',
     author_email='mak@fish.razor.jp',
