@@ -3,6 +3,7 @@ Functions for Google API
 """
 
 import json
+import logging
 import os
 import time
 
@@ -28,6 +29,7 @@ class GoogleApi(object):
         self.retries = kwargs.get('retries', 3)
         self.credential_cache_file = kwargs.get('credential_cache_file', "creden.json")
         self.cache_dir = kwargs.get('cache_dir', ".cache")
+        self.log = logging.getLogger("GoogleApi")
 
     @property
     def service(self):
@@ -37,10 +39,8 @@ class GoogleApi(object):
             self._service = build(self.api,
                                   self.api_version,
                                   credentials=self.credentials,
+                                  # cache=program_memory_cache,
                                   discoveryServiceUrl=self.discovery_url)
-            #                       cache=program_memory_cache)
-
-        print("Reusing the service.")
         return self._service
 
     def auth(self, file: str):

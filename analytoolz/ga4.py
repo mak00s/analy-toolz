@@ -18,7 +18,6 @@ class GA4Admin():
     def __init__(self, *args, **kwargs):
         """constructor"""
         self.credentials = kwargs.get('credentials')
-        print("Creating a client.")
         self.client = AnalyticsAdminServiceClient(credentials=self.credentials)
 
     def _get_account_id(self, path: str):
