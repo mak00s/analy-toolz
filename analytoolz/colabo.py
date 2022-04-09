@@ -2,8 +2,9 @@
 Functions for Google Colaboratory
 """
 
-import os
 from IPython.display import clear_output
+
+import os
 
 from google.colab import drive
 
@@ -18,3 +19,4 @@ def mount_gdrive(path="/content/drive"):
             clear_output()
         except Exception as e:
             raise e
+    return path
