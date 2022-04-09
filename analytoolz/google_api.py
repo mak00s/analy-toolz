@@ -202,5 +202,11 @@ def get_credentials(file: str, scopes, cache_path: str):
             credentials = Credentials.from_authorized_user_file(cache_path, scopes=scopes)
         else:
             credentials = _run_auth_flow(file, scopes)
+            # save cache
+            print(f"saving cache to {cache_path}")
+            if not os.path.isdir(self.cache_dir):
+                os.makedirs(self.cache_dir)
+            with open(cache_path, 'w') as file:
+                file.write(credentials.to_json())
 
     return credentials
