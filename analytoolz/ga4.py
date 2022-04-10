@@ -3,18 +3,63 @@ Functions for Google Analytics 4 API
 """
 
 from google.analytics.admin import AnalyticsAdminServiceClient
-from google.analytics.data import BetaAnalyticsDataClient
 from google.analytics.admin_v1alpha.types import CustomDimension
 from google.analytics.admin_v1alpha.types import CustomMetric
 from google.analytics.admin_v1alpha.types import DataRetentionSettings
+from google.analytics.data import BetaAnalyticsDataClient
+from google.analytics.data_v1beta.types import DateRange
+from google.analytics.data_v1beta.types import Dimension
+from google.analytics.data_v1beta.types import Filter
+from google.analytics.data_v1beta.types import FilterExpression
+from google.analytics.data_v1beta.types import Metadata
+from google.analytics.data_v1beta.types import Metric
+from google.analytics.data_v1beta.types import MetricType
+from google.analytics.data_v1beta.types import RunReportRequest
 
 
-class GA4Data():
+class LaunchGA4:
     def __init__(self, *args, **kwargs):
         """constructor"""
         self.credentials = kwargs.get('credentials')
         print("Creating GA4 Data client")
         self.client = BetaAnalyticsDataClient(credentials=self.credentials)
+        self.property_id = kwargs.get('property_id', None)
+
+    def change_property(self, property_id):
+        self.property_id = property_id
+
+    def get_metadata(self):
+        path = self.client.metadata_path(self.property_id)
+        try:
+            response = self.client.get_metadata(name=path)
+        except Exception as e:
+            print(e)
+        else:
+            dimensions = []
+            for i in a.dimensions:
+                dimensions.append({
+                    'api_name': i.api_name,
+                    'ui_name': i.ui_name,
+                    'description': i.description,
+                    'deprecated_api_names': i.deprecated_api_names,
+                    'custom_definition': i.custom_definition,
+                    'category': i.category})
+            metrics = []
+            for i in a.metrics:
+                metrics.append({
+                    'api_name': i.api_name,
+                    'ui_name': i.ui_name,
+                    'description': i.description,
+                    'deprecated_api_names': i.deprecated_api_names,
+                    'type': i.type_,
+                    'expression': i.expression,
+                    'custom_definition': i.custom_definition,
+                    'blocked_reason': i.blocked_reason,
+                    'category': i.category})
+            return dimensions, metrics
+
+    def get_data(self):
+        response = self.client.run_report(request=request)
 
 
 class GA4Admin():
