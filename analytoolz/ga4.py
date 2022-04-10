@@ -4,13 +4,16 @@ Functions for Google Analytics 4 API
 
 from google.analytics.admin import AnalyticsAdminServiceClient
 from google.analytics.data import BetaAnalyticsDataClient
+from google.analytics.admin_v1alpha.types import CustomDimension
+from google.analytics.admin_v1alpha.types import CustomMetric
+from google.analytics.admin_v1alpha.types import DataRetentionSettings
 
 
 class GA4Data():
     def __init__(self, *args, **kwargs):
         """constructor"""
         self.credentials = kwargs.get('credentials')
-        print("Creating a client.")
+        print("Creating GA4 Data client")
         self.client = BetaAnalyticsDataClient(credentials=self.credentials)
 
 
@@ -18,6 +21,7 @@ class GA4Admin():
     def __init__(self, *args, **kwargs):
         """constructor"""
         self.credentials = kwargs.get('credentials')
+        print("Creating GA4 Admin client")
         self.client = AnalyticsAdminServiceClient(credentials=self.credentials)
 
     def _get_account_id(self, path: str):
@@ -35,9 +39,9 @@ class GA4Admin():
         except Exception as e:
             print(e)
         else:
-            accounts = []
+            list = []
             for item in results_iterator:
-                act = {
+                dict = {
                     'id': self._get_account_id(item.account),
                     'name': item.display_name,
                     'properties': []}
@@ -46,6 +50,74 @@ class GA4Admin():
                         'id': self._get_property_id(p.property),
                         'name': p.display_name
                     }
-                    act['properties'].append(prop)
-                accounts.append(act)
-            return accounts
+                    dict['properties'].append(prop)
+                list.append(dict)
+            return list
+
+    def create_custom_dimension(self, property_id, parameter_name, display_name, description, scope='EVENT'):
+        """Create custom dimension for the property."""
+        try:
+            self.client.create_custom_dimension(
+                parent=f"properties/{property_id}",
+                custom_dimension={
+                    'parameter_name': parameter_name,
+                    'display_name': display_name,
+                    'description': description,
+                    'scope': CustomDimension.DimensionScope[scope].value,
+                }
+            )
+        except Exception as e:
+            print(e)
+        else:
+            return True
+
+    def custom_dimensions(self, property_id):
+        """Returns custom dimensions for the property."""
+        try:
+            results_iterator = self.client.list_custom_dimensions(parent=f"properties/{property_id}")
+        except Exception as e:
+            print(e)
+        else:
+            list = []
+            for item in results_iterator:
+                dict = {
+                    'display_name': item.display_name,
+                    'parameter_name': item.parameter_name,
+                    'description': item.description,
+                    'scope': CustomDimension.DimensionScope(item.scope).name,
+                }
+                list.append(dict)
+            return list
+
+    def custom_metrics(self, property_id):
+        """Returns custom metrics for the property."""
+        try:
+            results_iterator = self.client.list_custom_metrics(parent=f"properties/{property_id}")
+        except Exception as e:
+            print(e)
+        else:
+            list = []
+            for item in results_iterator:
+                dict = {
+                    'display_name': item.display_name,
+                    'parameter_name': item.parameter_name,
+                    'description': item.description,
+                    'scope': CustomDimension.DimensionScope(item.scope).name,
+                    'measurement_unit': CustomMetric.MeasurementUnit(item.measurement_unit).name,
+                    'restricted_metric_type': [CustomMetric.RestrictedMetricType(d).name for d in item.restricted_metric_type],
+                }
+                list.append(dict)
+            return list
+
+    def data_retention_settings(self, property_id):
+        """Returns data retention settings for the property."""
+        try:
+            item = self.client.get_data_retention_settings(name=f"properties/{property_id}/dataRetentionSettings")
+        except Exception as e:
+            print(e)
+        else:
+                dict = {
+                    'data_retention': DataRetentionSettings.RetentionDuration(item.event_data_retention).name,
+                    'reset_user_data_on_new_activity': item.reset_user_data_on_new_activity,
+                }
+                return dict
