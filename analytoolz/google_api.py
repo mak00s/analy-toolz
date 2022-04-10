@@ -27,8 +27,8 @@ class GoogleApi(object):
         self._service = None
         self.discovery_url = kwargs.get('discovery_url', DISCOVERY_URI)
         self.retries = kwargs.get('retries', 3)
-        self.credential_cache_file = kwargs.get('credential_cache_file', "creden.json")
-        self.cache_dir = kwargs.get('cache_dir', ".cache")
+        self.credential_cache_file = kwargs.get('credential_cache_file', "creden-cache.json")
+        self.cache_dir = kwargs.get('cache_dir', ".")
         self.log = logging.getLogger("GoogleApi")
 
     @property
@@ -201,7 +201,7 @@ def get_credentials(file: str, scopes, cache_path: str):
     else:
         if os.path.isfile(cache_path):
             # use cache
-            print(f"loading cache from {cache_path}")
+            print(f"loading {cache_path}")
             credentials = Credentials.from_authorized_user_file(cache_path, scopes=scopes)
         else:
             credentials = _run_auth_flow(file, scopes)
