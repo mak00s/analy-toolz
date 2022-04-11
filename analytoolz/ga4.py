@@ -17,9 +17,11 @@ from google.analytics.data_v1beta.types import DateRange
 from google.analytics.data_v1beta.types import Dimension
 from google.analytics.data_v1beta.types import Filter
 from google.analytics.data_v1beta.types import FilterExpression
+from google.analytics.data_v1beta.types import FilterExpressionList
 from google.analytics.data_v1beta.types import Metadata
 from google.analytics.data_v1beta.types import Metric
 from google.analytics.data_v1beta.types import MetricType
+from google.analytics.data_v1beta.types import OrderBy
 from google.analytics.data_v1beta.types import RunReportRequest
 from google.oauth2.credentials import Credentials
 
@@ -268,7 +270,22 @@ class RoboGA4:
             return all_data
 
         def _convert_metric(self, value, type):
-            if type in ['TYPE_INTEGER', 'TYPE_HOURS']:
+            """Metric's Value types are
+                METRIC_TYPE_UNSPECIFIED = 0
+                TYPE_CURRENCY = 9
+                TYPE_FEET = 10
+                TYPE_FLOAT = 2
+                TYPE_HOURS = 7
+                TYPE_INTEGER = 1
+                TYPE_KILOMETERS = 13
+                TYPE_METERS = 12
+                TYPE_MILES = 11
+                TYPE_MILLISECONDS = 5
+                TYPE_MINUTES = 6
+                TYPE_SECONDS = 4
+                TYPE_STANDARD = 8
+            """
+            if type in ['TYPE_INTEGER', 'TYPE_HOURS','TYPE_MINUTES','TYPE_SECONDS','TYPE_MILLISECONDS']:
                 return int(value)
             elif type in ['TYPE_FLOAT']:
                 return float(value)
@@ -300,7 +317,54 @@ class RoboGA4:
                 all_data.append(row_data)
             return all_data, names, dimension_types + metrics_types
 
-        def _call_api(self, dimensions, metrics, limit=1000, offset=0):
+        def _filter(self, exp, logic):
+            if logic == 'AND':
+                return FilterExpression(
+                    and_group=FilterExpressionList(
+                        expressions=[
+                            FilterExpression(
+                                filter=Filter(
+                                    field_name="platform",
+                                    string_filter=Filter.StringFilter(
+                                        match_type=Filter.StringFilter.MatchType.EXACT,
+                                        value="Android",
+                                    ),
+                                )
+                            ),
+                        ]
+                    )
+                )
+            elif logic == 'OR':
+                return FilterExpression(
+                    or_group=FilterExpressionList(
+                        expressions=[
+                            FilterExpression(
+                                filter=Filter()
+                            ),
+                        ]
+                    )
+                )
+            elif logic == 'NOT':
+                return FilterExpression(
+                    not_expression=FilterExpression(
+                        filter=Filter()
+                    )
+                )
+            else:
+                return FilterExpression(
+                    filter=Filter()
+                )
+
+        def _call_api(
+                self,
+                dimensions: list,
+                metrics: list,
+                dimension_filter=None,
+                metric_filter=None,
+                order_bys=None,
+                limit: int = 0,
+                offset: int = 0,
+        ):
             dimensions_ga4 = []
             for dimension in dimensions:
                 dimensions_ga4.append(Dimension(name=dimension))
@@ -312,9 +376,9 @@ class RoboGA4:
                 dimensions=dimensions_ga4,
                 metrics=metrics_ga4,
                 date_ranges=[DateRange(start_date=self.date_start, end_date=self.date_end)],
-                # dimension_filter=None,
-                # metrics_filter=None,
-                # order_bys=None,
+                dimension_filter=dimension_filter,
+                metric_filter=metric_filter,
+                order_bys=order_bys,
                 offset=offset,
                 limit=limit
             )
@@ -323,16 +387,32 @@ class RoboGA4:
             row_count = response.row_count
             data, headers, types = self._parse_ga4_response(response)
 
-            return data, row_count, headers, types
+            return (data, row_count, headers, types)
 
-        def run(self, dimensions, metrics, limit=10):
+        def run(
+                self,
+                dimensions: list,
+                metrics: list,
+                dimension_filter=None,
+                metric_filter=None,
+                order_bys=None,
+                limit: int = 1000
+        ):
             offset = 0
             all_rows = []
             page = 1
 
             while True:
                 print(f"(p.{page})")
-                (data, row_count, headers, types) = self._call_api(dimensions, metrics, limit=limit, offset=offset)
+                (data, row_count, headers, types) = self._call_api(
+                    dimensions,
+                    metrics,
+                    dimension_filter=dimension_filter,
+                    metric_filter=metric_filter,
+                    order_bys=order_bys,
+                    limit=limit,
+                    offset=offset
+                )
                 all_rows.extend(data)
                 print(f"retrieved #{offset + 1} - #{offset + len(data)}")
                 if offset + len(data) == row_count:
@@ -344,6 +424,43 @@ class RoboGA4:
             print(f"...retrieved all {row_count} rows.")
 
             return all_rows, headers, types, row_count
+
+        def daily_pv(self):
+            dimensions = [
+                'date',
+                'eventName',
+            ]
+            metrics = [
+                'eventCount',
+            ]
+            dimension_filter = FilterExpression(
+                filter=Filter(
+                    field_name="eventName",
+                    string_filter=Filter.StringFilter(value="page_view"),
+                )
+            )
+            order_bys = [
+                OrderBy(
+                    desc=False,
+                    dimension=OrderBy.DimensionOrderBy(
+                        dimension_name="date"
+                    )
+                ),
+                OrderBy(
+                    desc=True,
+                    metric=OrderBy.MetricOrderBy(
+                        metric_name="eventCount"
+                    )
+                ),
+            ]
+            (data, headers, types, row_count) = self.run(
+                dimensions,
+                metrics,
+                dimension_filter=dimension_filter,
+                order_bys=order_bys
+            )
+
+            return headers, data
 
         def pv(self):
             dimensions = [
@@ -360,6 +477,6 @@ class RoboGA4:
                 # 'customEvent:entrances',
                 # 'customEvent:engagement_time_msec',
             ]
-            (data, headers, types, row_count) = self.run(dimensions, metrics, limit=5)
+            (data, headers, types, row_count) = self.run(dimensions, metrics)
 
             return headers, data
