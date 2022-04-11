@@ -123,7 +123,32 @@ class LaunchGS:
                 }
             }
             _requests.append(dim)
+        self.workbook.batch_update({'requests': _requests})
 
+    def resize(
+            self,
+            col: int,
+            width: int
+    ):
+        """Auto resize columns to fit text"""
+        sheet_id = self.get_sheet_id()
+        _requests = []
+        for i in [col]:
+            dim = {
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "dimension": "COLUMNS",
+                        "startIndex": i - 1,
+                        "endIndex": i
+                    },
+                    "properties": {
+                        "pixelSize": width
+                    },
+                    "fields": "pixelSize"
+                }
+            }
+            _requests.append(dim)
         self.workbook.batch_update({'requests': _requests})
 
     def freeze(self, rows: int = None, cols: int = None):
