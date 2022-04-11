@@ -300,7 +300,7 @@ class RoboGA4:
                 all_data.append(row_data)
             return all_data, names, dimension_types + metrics_types
 
-        def _call_api(self, dimensions, metrics, limit=5, offset=0):
+        def _call_api(self, dimensions, metrics, limit=1000, offset=0):
             dimensions_ga4 = []
             for dimension in dimensions:
                 dimensions_ga4.append(Dimension(name=dimension))
