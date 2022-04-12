@@ -439,7 +439,7 @@ class RoboGA4:
 
             return all_rows, headers, types, row_count
 
-        def events_by_day(self):
+        def pv_by_day(self):
             dimensions = [
                 'date',
                 'eventName',
@@ -453,6 +453,37 @@ class RoboGA4:
                     string_filter=Filter.StringFilter(value="page_view"),
                 )
             )
+            order_bys = [
+                OrderBy(
+                    desc=False,
+                    dimension=OrderBy.DimensionOrderBy(
+                        dimension_name="date"
+                    )
+                ),
+            ]
+            (data, headers, types, row_count) = self.run(
+                dimensions,
+                metrics,
+                dimension_filter=dimension_filter,
+                order_bys=order_bys
+            )
+
+            return headers, data
+
+        def events_by_day(self):
+            dimensions = [
+                'date',
+                'eventName',
+            ]
+            metrics = [
+                'eventCount',
+            ]
+            # dimension_filter = FilterExpression(
+            #     filter=Filter(
+            #         field_name="eventName",
+            #         string_filter=Filter.StringFilter(value="page_view"),
+            #     )
+            # )
             # dimension_filter = FilterExpression(
             #     not_expression=FilterExpression(
             #     filter=Filter(
@@ -511,7 +542,7 @@ class RoboGA4:
             (data, headers, types, row_count) = self.run(
                 dimensions,
                 metrics,
-                dimension_filter=dimension_filter,
+                # dimension_filter=dimension_filter,
                 order_bys=order_bys
             )
 
