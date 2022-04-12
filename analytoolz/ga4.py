@@ -5,6 +5,8 @@ Functions for Google Analytics 4 API
 from datetime import datetime
 import pandas as pd
 import pytz
+import re
+import sys
 
 from google.analytics.admin import AnalyticsAdminServiceClient
 from google.analytics.admin_v1alpha.types import CustomDimension
@@ -24,6 +26,7 @@ from google.analytics.data_v1beta.types import MetricAggregation
 from google.analytics.data_v1beta.types import MetricType
 from google.analytics.data_v1beta.types import OrderBy
 from google.analytics.data_v1beta.types import RunReportRequest
+from google.api_core.exceptions import PermissionDenied
 from google.oauth2.credentials import Credentials
 
 
@@ -79,8 +82,21 @@ class RoboGA4:
             """Returns summaries of all accounts accessible by the caller."""
             try:
                 results_iterator = self.parent.admin_client.list_account_summaries()
+            except PermissionDenied as e:
+                print("権限がありません。")
+                message = getattr(e, 'message', repr(e))
+                ex_value = sys.exc_info()[1]
+                m = re.search(r'reason: "([^"]+)', str(ex_value))
+                if m:
+                    reason = m.group(1)
+                if reason == 'SERVICE_DISABLED':
+                    print("GCPのプロジェクトでAPIを有効化してください。")
+                print(message)
             except Exception as e:
-                print(e)
+                # print(e)
+                type_, value, traceback_ = sys.exc_info()
+                print(type_)
+                print(value)
             else:
                 list = []
                 for item in results_iterator:
@@ -228,6 +244,21 @@ class RoboGA4:
                     }
                     list.append(dict)
                 return list
+
+        def show(self, me: str, index_col: str = 'parameter_name'):
+            if me == 'custom_metrics':
+                res = self.list_custom_metrics()
+                if res:
+                    df = pd.DataFrame(res)
+                    if index_col:
+                        return df.set_index(index_col)
+            elif me == 'custom_dimensions':
+                res = self.list_custom_dimensions()
+                if res:
+                    df = pd.DataFrame(res)
+                    if index_col:
+                        return df.set_index(index_col)
+            return pd.DataFrame()
 
         def create_custom_dimension(self, parameter_name, display_name, description, scope='EVENT'):
             """Create custom dimension for the property."""
