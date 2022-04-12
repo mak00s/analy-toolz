@@ -26,8 +26,11 @@ from google.analytics.data_v1beta.types import MetricAggregation
 from google.analytics.data_v1beta.types import MetricType
 from google.analytics.data_v1beta.types import OrderBy
 from google.analytics.data_v1beta.types import RunReportRequest
+from google.analytics.data_v1beta.types import RunReportResponse
 from google.api_core.exceptions import PermissionDenied
 from google.oauth2.credentials import Credentials
+
+from . import utils
 
 
 class RoboGA4:
@@ -75,7 +78,7 @@ class RoboGA4:
             self.parent = parent
             self.id = None
 
-        def select(self, id):
+        def select(self, id: str):
             self.id = id
 
         def list(self):
@@ -90,7 +93,7 @@ class RoboGA4:
                 if m:
                     reason = m.group(1)
                 if reason == 'SERVICE_DISABLED':
-                    print("GCPのプロジェクトでAPIを有効化してください。")
+                    print("GCPのプロジェクトでAdmin APIを有効化してください。")
                 print(message)
             except Exception as e:
                 # print(e)
@@ -119,7 +122,7 @@ class RoboGA4:
             self.parent = parent
             self.id = None
 
-        def select(self, id):
+        def select(self, id: str):
             self.id = id
 
         def info(self):
@@ -245,7 +248,11 @@ class RoboGA4:
                     list.append(dict)
                 return list
 
-        def show(self, me: str, index_col: str = 'parameter_name'):
+        def show(
+                self,
+                me: str = 'properties',
+                index_col: str = 'parameter_name'
+        ):
             if me == 'custom_metrics':
                 res = self.list_custom_metrics()
                 if res:
@@ -258,9 +265,23 @@ class RoboGA4:
                     df = pd.DataFrame(res)
                     if index_col:
                         return df.set_index(index_col)
+            elif me == 'properties':
+                res = self.list()
+                index_col = 'id'
+            if res:
+                df = pd.DataFrame(res)
+                if index_col:
+                    return df.set_index(index_col)
+
             return pd.DataFrame()
 
-        def create_custom_dimension(self, parameter_name, display_name, description, scope='EVENT'):
+        def create_custom_dimension(
+                self,
+                parameter_name: str,
+                display_name: str,
+                description: str,
+                scope: str = 'EVENT'
+        ):
             """Create custom dimension for the property."""
             try:
                 created_cd = self.parent.admin_client.create_custom_dimension(
@@ -286,7 +307,7 @@ class RoboGA4:
             self.date_start = date_start
             self.date_end = date_end
 
-        def _ga4_response_to_dict(self, response):
+        def _ga4_response_to_dict(self, response: RunReportResponse):
             dim_len = len(response.dimension_headers)
             metric_len = len(response.metric_headers)
             all_data = []
@@ -301,7 +322,7 @@ class RoboGA4:
             # return df
             return all_data
 
-        def _convert_metric(self, value, type):
+        def _convert_metric(self, value, type: str):
             """Metric's Value types are
                 METRIC_TYPE_UNSPECIFIED = 0
                 TYPE_CURRENCY = 9
@@ -324,16 +345,19 @@ class RoboGA4:
             else:
                 return value
 
-        def _parse_ga4_response(self, response):
+        def _parse_ga4_response(self, response: RunReportResponse):
             names = []
             dimension_types = []
             metrics_types = []
+
             for i in response.dimension_headers:
                 names.append(i.name)
                 dimension_types.append('category')
+
             for i in response.metric_headers:
                 names.append(i.name)
                 metrics_types.append(MetricType(i.type_).name)
+
             all_data = []
             for row in response.rows:
                 row_data = []
@@ -347,6 +371,7 @@ class RoboGA4:
                         )
                     )
                 all_data.append(row_data)
+
             return all_data, names, dimension_types + metrics_types
 
         def _format_filter(self, conditions, logic=None):
@@ -391,7 +416,7 @@ class RoboGA4:
                 self,
                 dimensions: list,
                 metrics: list,
-                dimension_filter = None,
+                dimension_filter=None,
                 metric_filter=None,
                 order_bys=None,
                 show_total: bool = False,
@@ -408,7 +433,7 @@ class RoboGA4:
 
             metric_aggregations = []
             if show_total:
-                metric_aggregations.extend[
+                metric_aggregations = [
                     MetricAggregation.TOTAL,
                     MetricAggregation.MAXIMUM,
                     MetricAggregation.MINIMUM,
@@ -425,51 +450,90 @@ class RoboGA4:
                 limit=limit,
                 offset=offset,
             )
-            response = self.parent.data_client.run_report(request)
 
-            row_count = response.row_count
-            data, headers, types = self._parse_ga4_response(response)
+            data = []
+            headers = []
+            types = []
+            row_count = 0
+            response = None
+            try:
+                response = self.parent.data_client.run_report(request)
+                row_count = response.row_count
+            except PermissionDenied as e:
+                print("権限がありません。")
+                message = getattr(e, 'message', repr(e))
+                ex_value = sys.exc_info()[1]
+                m = re.search(r'reason: "([^"]+)', str(ex_value))
+                if m:
+                    reason = m.group(1)
+                if reason == 'SERVICE_DISABLED':
+                    print("GCPのプロジェクトでData APIを有効化してください。")
+                print(message)
+            except Exception as e:
+                # print(e)
+                type_, value, traceback_ = sys.exc_info()
+                print(type_)
+                print(value)
 
-            return (data, row_count, headers, types)
+            if row_count > 0:
+                data, headers, types = self._parse_ga4_response(response)
+
+            return data, row_count, headers, types
 
         def run(
                 self,
                 dimensions: list,
                 metrics: list,
-                dimension_filter = None,
-                metric_filter = None,
-                order_bys = None,
+                dimension_filter=None,
+                metric_filter=None,
+                order_bys=None,
                 show_total: bool = False,
-                limit: int = 1000
+                limit: int = 10000,
+                to_pd: bool = True
         ):
             offset = 0
             all_rows = []
+            headers = []
+            types = []
             page = 1
 
             while True:
-                print(f"(p.{page})")
                 (data, row_count, headers, types) = self._call_api(
                     dimensions,
                     metrics,
                     dimension_filter=dimension_filter,
                     metric_filter=metric_filter,
                     order_bys=order_bys,
-                    show_total = show_total,
+                    show_total=show_total,
                     limit=limit,
                     offset=offset
                 )
-                all_rows.extend(data)
-                print(f"retrieved #{offset + 1} - #{offset + len(data)}")
-                if offset + len(data) == row_count:
-                    break
+                if len(data) > 0:
+                    all_rows.extend(data)
+                    print(f"p{page}: retrieved #{offset + 1} - #{offset + len(data)}")
+                    if offset + len(data) == row_count:
+                        break
+                    else:
+                        page += 1
+                        offset += limit
                 else:
-                    page += 1
-                    offset += limit
+                    break
 
-            print(f"...retrieved all {row_count} rows.")
+            if len(all_rows) > 0:
+                print(f"\nTotal: {len(all_rows)} rows")
+            else:
+                print("no data found.")
 
-            return all_rows, headers, types, row_count
+            if to_pd:
+                df = pd.DataFrame(all_rows, columns=headers)
+                df = utils.change_column_type(df)
+                return df
+            else:
+                return all_rows, headers, types
 
+        """
+        reports
+        """
         def pv_by_day(self):
             dimensions = [
                 'date',
@@ -492,14 +556,12 @@ class RoboGA4:
                     )
                 ),
             ]
-            (data, headers, types, row_count) = self.run(
+            return self.run(
                 dimensions,
                 metrics,
                 dimension_filter=dimension_filter,
                 order_bys=order_bys
             )
-
-            return headers, data
 
         def events_by_day(self):
             dimensions = [
@@ -570,14 +632,12 @@ class RoboGA4:
                     )
                 ),
             ]
-            (data, headers, types, row_count) = self.run(
+            return self.run(
                 dimensions,
                 metrics,
                 # dimension_filter=dimension_filter,
                 order_bys=order_bys
             )
-
-            return headers, data
 
         def pv(self):
             dimensions = [
@@ -594,6 +654,6 @@ class RoboGA4:
                 # 'customEvent:entrances',
                 # 'customEvent:engagement_time_msec',
             ]
-            (data, headers, types, row_count) = self.run(dimensions, metrics)
+            (data, headers, types) = self.run(dimensions, metrics)
 
             return headers, data
