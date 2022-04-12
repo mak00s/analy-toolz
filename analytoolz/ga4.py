@@ -20,6 +20,7 @@ from google.analytics.data_v1beta.types import FilterExpression
 from google.analytics.data_v1beta.types import FilterExpressionList
 from google.analytics.data_v1beta.types import Metadata
 from google.analytics.data_v1beta.types import Metric
+from google.analytics.data_v1beta.types import MetricAggregation
 from google.analytics.data_v1beta.types import MetricType
 from google.analytics.data_v1beta.types import OrderBy
 from google.analytics.data_v1beta.types import RunReportRequest
@@ -317,7 +318,7 @@ class RoboGA4:
                 all_data.append(row_data)
             return all_data, names, dimension_types + metrics_types
 
-        def _filter(self, exp, logic):
+        def _format_filter(self, conditions, logic=None):
             if logic == 'AND':
                 return FilterExpression(
                     and_group=FilterExpressionList(
@@ -359,18 +360,29 @@ class RoboGA4:
                 self,
                 dimensions: list,
                 metrics: list,
-                dimension_filter=None,
+                dimension_filter = None,
                 metric_filter=None,
                 order_bys=None,
+                show_total: bool = False,
                 limit: int = 0,
                 offset: int = 0,
         ):
             dimensions_ga4 = []
             for dimension in dimensions:
                 dimensions_ga4.append(Dimension(name=dimension))
+
             metrics_ga4 = []
             for metric in metrics:
                 metrics_ga4.append(Metric(name=metric))
+
+            metric_aggregations = []
+            if show_total:
+                metric_aggregations.extend[
+                    MetricAggregation.TOTAL,
+                    MetricAggregation.MAXIMUM,
+                    MetricAggregation.MINIMUM,
+                ]
+
             request = RunReportRequest(
                 property=f"properties/{self.parent.property.id}",
                 dimensions=dimensions_ga4,
@@ -379,8 +391,8 @@ class RoboGA4:
                 dimension_filter=dimension_filter,
                 metric_filter=metric_filter,
                 order_bys=order_bys,
+                limit=limit,
                 offset=offset,
-                limit=limit
             )
             response = self.parent.data_client.run_report(request)
 
@@ -393,9 +405,10 @@ class RoboGA4:
                 self,
                 dimensions: list,
                 metrics: list,
-                dimension_filter=None,
-                metric_filter=None,
-                order_bys=None,
+                dimension_filter = None,
+                metric_filter = None,
+                order_bys = None,
+                show_total: bool = False,
                 limit: int = 1000
         ):
             offset = 0
@@ -410,6 +423,7 @@ class RoboGA4:
                     dimension_filter=dimension_filter,
                     metric_filter=metric_filter,
                     order_bys=order_bys,
+                    show_total = show_total,
                     limit=limit,
                     offset=offset
                 )
@@ -425,7 +439,7 @@ class RoboGA4:
 
             return all_rows, headers, types, row_count
 
-        def daily_pv(self):
+        def events_by_day(self):
             dimensions = [
                 'date',
                 'eventName',
@@ -439,6 +453,47 @@ class RoboGA4:
                     string_filter=Filter.StringFilter(value="page_view"),
                 )
             )
+            # dimension_filter = FilterExpression(
+            #     not_expression=FilterExpression(
+            #     filter=Filter(
+            #         field_name="eventName",
+            #         numeric_filter=Filter.NumericFilter(
+            #             operation=Filter.NumericFilter.Operation.GREATER_THAN,
+            #             value=NumericValue(int64_value=1000),
+            #         ),
+            #     )
+            #     )
+            # )
+            # dimension_filter = FilterExpression(
+            #     filter=Filter(
+            #         field_name="eventName",
+            #         in_list_filter=Filter.InListFilter(
+            #             values=[
+            #                 "purchase",
+            #                 "in_app_purchase",
+            #                 "app_store_subscription_renew",
+            #             ]
+            #         ),
+            #     )
+            # )
+            # dimension_filter = FilterExpression(
+            #     and_group=FilterExpressionList(
+            #         expressions=[
+            #             FilterExpression(
+            #                 filter=Filter(
+            #                     field_name="browser",
+            #                     string_filter=Filter.StringFilter(value="Chrome"),
+            #                 )
+            #             ),
+            #             FilterExpression(
+            #                 filter=Filter(
+            #                     field_name="countryId",
+            #                     string_filter=Filter.StringFilter(value="US"),
+            #                 )
+            #             ),
+            #         ]
+            #     )
+            # )
             order_bys = [
                 OrderBy(
                     desc=False,
