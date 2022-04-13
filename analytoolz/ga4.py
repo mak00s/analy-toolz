@@ -45,6 +45,7 @@ class RoboGA4:
         self.data_client = None
         self.admin_client = None
         self.account = self.Account(self)
+        self.accounts = None
         self.property = self.Property(self)
         self.report = self.Report(self)
         if credentials:
@@ -63,6 +64,7 @@ class RoboGA4:
             print("Launching RoboGA4")
             self.data_client = BetaAnalyticsDataClient(credentials=self.credentials)
             self.admin_client = AnalyticsAdminServiceClient(credentials=self.credentials)
+            self.update()
         else:
             print("credentials given are invalid.")
             return
@@ -73,92 +75,156 @@ class RoboGA4:
             print("the given scopes don't meet requirements.")
             return
 
+    def update(self):
+        """Returns summaries of all accounts accessible by the caller."""
+        try:
+            results_iterator = self.admin_client.list_account_summaries()
+        except PermissionDenied as e:
+            print("権限がありません。")
+            m = re.search(r'reason: "([^"]+)', str(sys.exc_info()[1]))
+            if m:
+                reason = m.group(1)
+                if reason == 'SERVICE_DISABLED':
+                    print("GCPのプロジェクトでAdmin APIを有効化してください。")
+            message = getattr(e, 'message', repr(e))
+            print(message)
+        except Exception as e:
+            type, value, traceback = sys.exc_info()
+            print(type)
+            print(value)
+        else:
+            results = []
+            for i in results_iterator:
+                dict1 = {
+                    'id': self._parse_account_path(i.account),
+                    'name': i.display_name,
+                    'properties': [],
+                }
+                for p in i.property_summaries:
+                    dict2 = {
+                        'id': self._parse_property_path(p.property),
+                        'name': p.display_name
+                    }
+                    dict1['properties'].append(dict2)
+                results.append(dict1)
+            self.accounts = results
+            return results
+
     class Account:
         def __init__(self, parent):
             self.parent = parent
             self.id = None
+            self.properties = None
 
         def select(self, id: str):
-            self.id = id
+            if id:
+                self.id = id
+                self.update()
+            else:
+                self.parent.property.id = None
 
-        def list(self):
+        def _update(self):
             """Returns summaries of all accounts accessible by the caller."""
             try:
                 results_iterator = self.parent.admin_client.list_account_summaries()
             except PermissionDenied as e:
                 print("権限がありません。")
-                message = getattr(e, 'message', repr(e))
-                ex_value = sys.exc_info()[1]
-                m = re.search(r'reason: "([^"]+)', str(ex_value))
+                m = re.search(r'reason: "([^"]+)', str(sys.exc_info()[1]))
                 if m:
                     reason = m.group(1)
-                if reason == 'SERVICE_DISABLED':
-                    print("GCPのプロジェクトでAdmin APIを有効化してください。")
+                    if reason == 'SERVICE_DISABLED':
+                        print("GCPのプロジェクトでAdmin APIを有効化してください。")
+                message = getattr(e, 'message', repr(e))
                 print(message)
             except Exception as e:
-                # print(e)
-                type_, value, traceback_ = sys.exc_info()
-                print(type_)
+                type, value, traceback = sys.exc_info()
+                print(type)
                 print(value)
             else:
-                list = []
-                for item in results_iterator:
-                    dict = {
-                        'id': self.parent._parse_account_path(item.account),
-                        'name': item.display_name,
+                results = []
+                for i in results_iterator:
+                    dict1 = {
+                        'id': self.parent._parse_account_path(i.account),
+                        'name': i.display_name,
                         'properties': [],
                     }
-                    for p in item.property_summaries:
-                        prop = {
+                    for p in i.property_summaries:
+                        dict2 = {
                             'id': self.parent._parse_property_path(p.property),
                             'name': p.display_name
                         }
-                        dict['properties'].append(prop)
-                    list.append(dict)
-                return list
+                        dict1['properties'].append(dict2)
+                    results.append(dict1)
+                self.list = results
+                return results
+
+        def update(self):
+            """Update summaries of all properties for the account"""
+            try:
+                results_iterator = self.parent.admin_client.list_properties({
+                    'filter': f"parent:accounts/{self.id}",
+                    'show_deleted': False,
+                })
+            except Exception as e:
+                # print(e)
+                raise e
+            else:
+                results = []
+                for i in results_iterator:
+                    dict = {
+                        'id': self.parent._parse_property_path(i.name),
+                        'name': i.display_name,
+                        'time_zone': i.time_zone,
+                        'currency': i.currency_code,
+                        'industry': IndustryCategory(i.industry_category).name,
+                        'service_level': ServiceLevel(i.service_level).name,
+                        'created_time': datetime.fromtimestamp(
+                            i.create_time.timestamp(),
+                            pytz.timezone('Asia/Tokyo')
+                        ),
+                        'updated_time': datetime.fromtimestamp(
+                            i.update_time.timestamp(),
+                            pytz.timezone('Asia/Tokyo')
+                        )
+                    }
+                    results.append(dict)
+                self.properties = results
+                return results
+
+        def show(
+                self,
+                # me: str = 'properties',
+                index_col: str = 'id'
+        ):
+            res = self.properties
+            if res:
+                df = pd.DataFrame(res)
+                if index_col:
+                    return df.set_index(index_col)
 
     class Property:
         def __init__(self, parent):
             self.parent = parent
             self.id = None
+            # self.custom_dimensions = None
+            # self.custom_metrics = None
+            self.clear()
 
         def select(self, id: str):
-            self.id = id
+            if id:
+                if id != self.id:
+                    self.clear()
+                    self.id = id
+            else:
+                self.id = None
+                self.clear()
+
+        def clear(self):
+            self.custom_dimensions = None
+            self.custom_metrics = None
 
         def info(self):
-            properties = self.list()
-            return [p for p in properties if p['id'] == self.id][0]
-
-        def list(self):
-            """Returns summaries of all properties for the account"""
-            try:
-                results_iterator = self.parent.admin_client.list_properties({
-                    'filter': f"parent:accounts/{self.parent.account.id}",
-                    'show_deleted': False,
-                })
-            except Exception as e:
-                print(e)
-            else:
-                list = []
-                for item in results_iterator:
-                    dict = {
-                        'id': self.parent._parse_property_path(item.name),
-                        'name': item.display_name,
-                        'time_zone': item.time_zone,
-                        'currency': item.currency_code,
-                        'industry': IndustryCategory(item.industry_category).name,
-                        'service_level': ServiceLevel(item.service_level).name,
-                        'created_time': datetime.fromtimestamp(
-                            item.create_time.timestamp(),
-                            pytz.timezone('Asia/Tokyo')
-                        ),
-                        'updated_time': datetime.fromtimestamp(
-                            item.update_time.timestamp(),
-                            pytz.timezone('Asia/Tokyo')
-                        )
-                    }
-                    list.append(dict)
-                return list
+            return [p for p in self.parent.account.properties if p['id'] == self.id][0]
 
         def data_retention(self):
             """Returns data retention settings for the property."""
@@ -206,7 +272,7 @@ class RoboGA4:
                     })
                 return {'dimensions': dimensions, 'metrics': metrics}
 
-        def list_custom_dimensions(self):
+        def get_custom_dimensions(self):
             """Returns custom dimensions for the property."""
             try:
                 results_iterator = self.parent.admin_client.list_custom_dimensions(
@@ -214,19 +280,20 @@ class RoboGA4:
             except Exception as e:
                 print(e)
             else:
-                list = []
-                for item in results_iterator:
+                results = []
+                for i in results_iterator:
                     dict = {
-                        'parameter_name': item.parameter_name,
-                        'display_name': item.display_name,
-                        'description': item.description,
-                        'scope': CustomDimension.DimensionScope(item.scope).name,
+                        'parameter_name': i.parameter_name,
+                        'display_name': i.display_name,
+                        'description': i.description,
+                        'scope': CustomDimension.DimensionScope(i.scope).name,
                         # 'disallow_ads_personalization': item.disallow_ads_personalization,
                     }
-                    list.append(dict)
-                return list
+                    results.append(dict)
+                self.custom_dimensions = results
+                return results
 
-        def list_custom_metrics(self):
+        def get_custom_metrics(self):
             """Returns custom metrics for the property."""
             try:
                 results_iterator = self.parent.admin_client.list_custom_metrics(
@@ -234,45 +301,46 @@ class RoboGA4:
             except Exception as e:
                 print(e)
             else:
-                list = []
-                for item in results_iterator:
+                results = []
+                for i in results_iterator:
                     dict = {
-                        'parameter_name': item.parameter_name,
-                        'display_name': item.display_name,
-                        'description': item.description,
-                        'scope': CustomDimension.DimensionScope(item.scope).name,
-                        'measurement_unit': CustomMetric.MeasurementUnit(item.measurement_unit).name,
+                        'parameter_name': i.parameter_name,
+                        'display_name': i.display_name,
+                        'description': i.description,
+                        'scope': CustomDimension.DimensionScope(i.scope).name,
+                        'measurement_unit': CustomMetric.MeasurementUnit(i.measurement_unit).name,
                         'restricted_metric_type': [CustomMetric.RestrictedMetricType(d).name for d in
-                                                   item.restricted_metric_type],
+                                                   i.restricted_metric_type],
                     }
-                    list.append(dict)
-                return list
+                    results.append(dict)
+                self.custom_metrics = results
+                return results
 
         def show(
                 self,
-                me: str = 'properties',
+                me: str = 'info',
                 index_col: str = 'parameter_name'
         ):
+            res = None
             if me == 'custom_metrics':
-                res = self.list_custom_metrics()
-                if res:
-                    df = pd.DataFrame(res)
-                    if index_col:
-                        return df.set_index(index_col)
+                if self.custom_metrics:
+                    res = self.custom_metrics
+                else:
+                    res = self.get_custom_metrics()
             elif me == 'custom_dimensions':
-                res = self.list_custom_dimensions()
-                if res:
-                    df = pd.DataFrame(res)
-                    if index_col:
-                        return df.set_index(index_col)
-            elif me == 'properties':
-                res = self.list()
+                if self.custom_dimensions:
+                    res = self.custom_dimensions
+                else:
+                    res = self.get_custom_dimensions()
+            elif me == 'info':
+                res = [self.info()]
                 index_col = 'id'
-            if res:
-                df = pd.DataFrame(res)
-                if index_col:
-                    return df.set_index(index_col)
 
+            if res:
+                if index_col:
+                    return pd.DataFrame(res).set_index(index_col)
+                else:
+                    return pd.DataFrame(res)
             return pd.DataFrame()
 
         def create_custom_dimension(
