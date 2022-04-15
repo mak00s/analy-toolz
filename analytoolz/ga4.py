@@ -359,6 +359,8 @@ class RoboGA4:
                             dict['parameter_name'] = c['parameter_name']
                             dict['scope'] = c['scope']
                             dict['unit'] = c['measurement_unit']
+                if 'type' in m.keys():
+                    dict['type'] = MetricType(m['type']).name
                 new.append(dict)
             self.metrics = new
             return self.metrics
@@ -373,18 +375,12 @@ class RoboGA4:
                 res = self.get_metrics()
             elif me == 'dimensions':
                 res = self.get_dimensions()
-            # elif me == 'available_dimensions':
-            #     index_col = None
-            #     if self.api_metadata:
-            #         res = self.api_metadata['dimensions']
-            #     else:
-            #         res = self.get_available()['dimensions']
-            # elif me == 'available_metrics':
-            #     index_col = None
-            #     if self.api_metadata:
-            #         res = self.api_metadata['metrics']
-            #     else:
-            #         res = self.get_available()['metrics']
+            elif me == 'custom_dimensions':
+                index_col = None
+                res = self.get_available()['dimensions']
+            elif me == 'custom_metrics':
+                index_col = None
+                res = self.get_available()['metrics']
             elif me == 'info':
                 res = [self.get_info()]
                 index_col = 'id'
