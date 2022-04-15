@@ -118,45 +118,11 @@ class RoboGA4:
 
         def select(self, id: str):
             if id:
-                self.id = id
-                self.update()
+                if id != self.id:
+                    self.id = id
+                    self.update()
             else:
                 self.parent.property.id = None
-
-        def _update(self):
-            """Returns summaries of all accounts accessible by the caller."""
-            try:
-                results_iterator = self.parent.admin_client.list_account_summaries()
-            except PermissionDenied as e:
-                print("権限がありません。")
-                m = re.search(r'reason: "([^"]+)', str(sys.exc_info()[1]))
-                if m:
-                    reason = m.group(1)
-                    if reason == 'SERVICE_DISABLED':
-                        print("GCPのプロジェクトでAdmin APIを有効化してください。")
-                message = getattr(e, 'message', repr(e))
-                print(message)
-            except Exception as e:
-                type, value, traceback = sys.exc_info()
-                print(type)
-                print(value)
-            else:
-                results = []
-                for i in results_iterator:
-                    dict1 = {
-                        'id': self.parent._parse_account_path(i.account),
-                        'name': i.display_name,
-                        'properties': [],
-                    }
-                    for p in i.property_summaries:
-                        dict2 = {
-                            'id': self.parent._parse_property_path(p.property),
-                            'name': p.display_name
-                        }
-                        dict1['properties'].append(dict2)
-                    results.append(dict1)
-                self.list = results
-                return results
 
         def update(self):
             """Update summaries of all properties for the account"""
@@ -206,73 +172,55 @@ class RoboGA4:
         def __init__(self, parent):
             self.parent = parent
             self.id = None
-            # self.custom_dimensions = None
-            # self.custom_metrics = None
-            self.clear()
+            self.name = None
+            self.created_time = None
+            self.updated_time = None
+            self.time_zone = None
+            self.currency = None
+            self.industry = None
+            self.service_level = None
+            self.api_custom_dimensions = None
+            self.api_custom_metrics = None
+            self.api_data_retention = None
+            self.api_metadata = None
+            self.dimensions = None
+            self.metrics = None
+            # self.clear()
 
-        def select(self, id: str):
-            if id:
-                if id != self.id:
-                    self.clear()
-                    self.id = id
-            else:
-                self.id = None
-                self.clear()
-
-        def clear(self):
-            self.custom_dimensions = None
-            self.custom_metrics = None
-
-        def info(self):
-            return [p for p in self.parent.account.properties if p['id'] == self.id][0]
-
-        def data_retention(self):
-            """Returns data retention settings for the property."""
-            try:
-                item = self.parent.admin_client.get_data_retention_settings(
-                    name=f"properties/{self.id}/dataRetentionSettings")
-            except Exception as e:
-                print(e)
-            else:
-                dict = {
-                    'data_retention': DataRetentionSettings.RetentionDuration(item.event_data_retention).name,
-                    'reset_user_data_on_new_activity': item.reset_user_data_on_new_activity,
-                }
-                return dict
-
-        def available(self):
+        def _get_metadata(self):
             """Returns available custom dimensions and custom metrics for the property."""
             path = self.parent.data_client.metadata_path(self.id)
             try:
                 response = self.parent.data_client.get_metadata(name=path)
             except Exception as e:
                 print(e)
+                raise e
             else:
                 dimensions = []
                 for i in response.dimensions:
                     dimensions.append({
-                        'customized': i.custom_definition,
-                        'category': i.category,
-                        'api_name': i.api_name,
+                        'customized':   i.custom_definition,
+                        'category':     i.category,
+                        'api_name':     i.api_name,
                         'display_name': i.ui_name,
-                        'description': i.description,
+                        'description':  i.description,
                         # 'deprecated_api_names': i.deprecated_api_names,
                     })
                 metrics = []
                 for i in response.metrics:
                     metrics.append({
-                        'customized': i.custom_definition,
-                        'category': i.category,
-                        'api_name': i.api_name,
+                        'customized':   i.custom_definition,
+                        'category':     i.category,
+                        'api_name':     i.api_name,
                         'display_name': i.ui_name,
-                        'description': i.description,
+                        'description':  i.description,
                         # 'deprecated_api_names': i.deprecated_api_names,
-                        'type': i.type_,
-                        'expression': i.expression,
+                        'type':         i.type_,
+                        'expression':   i.expression,
                     })
                 return {'dimensions': dimensions, 'metrics': metrics}
 
-        def get_custom_dimensions(self):
+        def _get_custom_dimensions(self):
             """Returns custom dimensions for the property."""
             try:
                 results_iterator = self.parent.admin_client.list_custom_dimensions(
@@ -290,10 +238,9 @@ class RoboGA4:
                         # 'disallow_ads_personalization': item.disallow_ads_personalization,
                     }
                     results.append(dict)
-                self.custom_dimensions = results
                 return results
 
-        def get_custom_metrics(self):
+        def _get_custom_metrics(self):
             """Returns custom metrics for the property."""
             try:
                 results_iterator = self.parent.admin_client.list_custom_metrics(
@@ -313,8 +260,108 @@ class RoboGA4:
                                                    i.restricted_metric_type],
                     }
                     results.append(dict)
-                self.custom_metrics = results
                 return results
+
+        def select(self, id: str):
+            if id:
+                if id != self.id:
+                    self.id = id
+                    self.update()
+            else:
+                self.id = None
+                self.clear()
+
+        def clear(self):
+            self.name = None
+            self.created_time = None
+            self.updated_time = None
+            self.time_zone = None
+            self.currency = None
+            self.industry = None
+            self.service_level = None
+            self.api_custom_dimensions = None
+            self.api_custom_metrics = None
+            self.api_data_retention = None
+            self.api_metadata = None
+            self.dimensions = None
+            self.metrics = None
+
+        def update(self):
+            self.clear()
+            self.get_info()
+            self.get_available()
+            # self.get_dimensions()
+            # self.get_metrics()
+            # self.get_data_retention()
+
+        def get_data_retention(self):
+            """Returns data retention settings for the property."""
+            try:
+                item = self.parent.admin_client.get_data_retention_settings(
+                    name=f"properties/{self.id}/dataRetentionSettings")
+            except Exception as e:
+                print(e)
+            else:
+                dict = {
+                    'data_retention': DataRetentionSettings.RetentionDuration(item.event_data_retention).name,
+                    'reset_user_data_on_new_activity': item.reset_user_data_on_new_activity,
+                }
+                self.api_data_retention = dict
+                return dict
+
+        def get_info(self):
+            """Get property data from parent account"""
+            dict = [p for p in self.parent.account.properties if p['id'] == self.id][0]
+            self.name = dict['name']
+            self.created_time = dict['created_time']
+            self.updated_time = dict['updated_time']
+            self.time_zone = dict['time_zone']
+            self.currency = dict['currency']
+            self.industry = dict['industry']
+            self.service_level = dict['service_level']
+            return dict
+
+        def get_available(self):
+            if not self.api_metadata:
+                self.api_metadata  = self._get_metadata()
+            return self.api_metadata
+
+        def get_dimensions(self):
+            self.get_available()
+            if not self.api_custom_dimensions:
+                self.api_custom_dimensions = self._get_custom_dimensions()
+            # integrate data
+            new = []
+            for m in self.api_metadata['dimensions']:
+                dict = m.copy()
+                if m['customized'] == True:
+                    for c in self.api_custom_dimensions:
+                        if m['display_name'] == c['display_name'] or m['display_name'] == c['parameter_name']:
+                            dict['description'] = c['description']
+                            dict['parameter_name'] = c['parameter_name']
+                            dict['scope'] = c['scope']
+                new.append(dict)
+            self.dimensions = new
+            return self.dimensions
+
+        def get_metrics(self):
+            self.get_available()
+            if not self.api_custom_metrics:
+                self.api_custom_metrics = self._get_custom_metrics()
+            # integrate data
+            new = []
+            for m in self.api_metadata['metrics']:
+                dict = m.copy()
+                if m['customized'] == True:
+                    for c in self.api_custom_metrics:
+                        if m['display_name'] == c['display_name']:
+                            dict['description'] = c['description']
+                            dict['parameter_name'] = c['parameter_name']
+                            dict['scope'] = c['scope']
+                            dict['unit'] = c['measurement_unit']
+                new.append(dict)
+            self.metrics = new
+            return self.metrics
 
         def show(
                 self,
@@ -322,18 +369,24 @@ class RoboGA4:
                 index_col: str = 'parameter_name'
         ):
             res = None
-            if me == 'custom_metrics':
-                if self.custom_metrics:
-                    res = self.custom_metrics
-                else:
-                    res = self.get_custom_metrics()
-            elif me == 'custom_dimensions':
-                if self.custom_dimensions:
-                    res = self.custom_dimensions
-                else:
-                    res = self.get_custom_dimensions()
+            if me == 'metrics':
+                res = self.get_metrics()
+            elif me == 'dimensions':
+                res = self.get_dimensions()
+            # elif me == 'available_dimensions':
+            #     index_col = None
+            #     if self.api_metadata:
+            #         res = self.api_metadata['dimensions']
+            #     else:
+            #         res = self.get_available()['dimensions']
+            # elif me == 'available_metrics':
+            #     index_col = None
+            #     if self.api_metadata:
+            #         res = self.api_metadata['metrics']
+            #     else:
+            #         res = self.get_available()['metrics']
             elif me == 'info':
-                res = [self.info()]
+                res = [self.get_info()]
                 index_col = 'id'
 
             if res:
@@ -368,12 +421,31 @@ class RoboGA4:
     class Report:
         def __init__(self, parent):
             self.parent = parent
-            self.date_start = '7daysAgo'
-            self.date_end = 'yesterday'
+            self.start_date = '7daysAgo'
+            self.end_date = 'yesterday'
 
-        def set_dates(self, date_start: str, date_end: str):
-            self.date_start = date_start
-            self.date_end = date_end
+        def set_dates(self, start_date: str, end_date: str):
+            self.start_date = start_date
+            self.end_date = end_date
+
+        def _get_api_name(self, before, which='dimensions', what='api_name'):
+            dim = self.parent.property.api_metadata[which]
+            for r in dim:
+                if r['display_name'] == before:
+                    return r[what]
+                elif r['api_name'] == before:
+                    return r[what]
+            print(f"{which[:-1]} {before} is not found.")
+            return None
+
+        # def _get_dimension_api_name(self, dim: str):
+        #     name = [
+        #         'custom'
+        #         + r['scope'][0:].title()
+        #         + ':'
+        #         + r['parameter_name']
+        #         for r in self.parent.property.dimensions if r['parameter_name'] == dim][0]
+        #     return name
 
         def _ga4_response_to_dict(self, response: RunReportResponse):
             dim_len = len(response.dimension_headers)
@@ -386,8 +458,6 @@ class RoboGA4:
                 for i in range(0, metric_len):
                     row_data.update({response.metric_headers[i].name: row.metric_values[i].value})
                 all_data.append(row_data)
-            # df = pd.DataFrame(all_data)
-            # return df
             return all_data
 
         def _convert_metric(self, value, type: str):
@@ -479,11 +549,14 @@ class RoboGA4:
                 return FilterExpression(
                     filter=Filter()
                 )
+            return
 
         def _call_api(
                 self,
                 dimensions: list,
                 metrics: list,
+                start_date=None,
+                end_date=None,
                 dimension_filter=None,
                 metric_filter=None,
                 order_bys=None,
@@ -491,13 +564,15 @@ class RoboGA4:
                 limit: int = 0,
                 offset: int = 0,
         ):
-            dimensions_ga4 = []
-            for dimension in dimensions:
-                dimensions_ga4.append(Dimension(name=dimension))
+            dimensions_ga4 = [Dimension(name=d) for d in dimensions]
+            # for d in dimensions:
+            #     dimensions_ga4.append(Dimension(name=d))
 
-            metrics_ga4 = []
-            for metric in metrics:
-                metrics_ga4.append(Metric(name=metric))
+            metrics_ga4 = [Metric(name=m) for m in metrics]
+            # for m in metrics:
+            #     metrics_ga4.append(Metric(name=m))
+
+            date_ranges = [DateRange(start_date=start_date, end_date=end_date)]
 
             metric_aggregations = []
             if show_total:
@@ -511,7 +586,7 @@ class RoboGA4:
                 property=f"properties/{self.parent.property.id}",
                 dimensions=dimensions_ga4,
                 metrics=metrics_ga4,
-                date_ranges=[DateRange(start_date=self.date_start, end_date=self.date_end)],
+                date_ranges=date_ranges,
                 dimension_filter=dimension_filter,
                 metric_filter=metric_filter,
                 order_bys=order_bys,
@@ -552,6 +627,8 @@ class RoboGA4:
                 self,
                 dimensions: list,
                 metrics: list,
+                start_date=None,
+                end_date=None,
                 dimension_filter=None,
                 metric_filter=None,
                 order_bys=None,
@@ -565,10 +642,18 @@ class RoboGA4:
             types = []
             page = 1
 
+            dimension_api_names = [self._get_api_name(r) for r in dimensions]
+            metrics_api_names = [self._get_api_name(r, which='metrics') for r in metrics]
+            start_date = start_date if start_date else self.start_date
+            end_date = end_date if end_date else self.end_date
+            print(f"Building a report ({start_date} - {end_date})")
+
             while True:
                 (data, row_count, headers, types) = self._call_api(
-                    dimensions,
-                    metrics,
+                    dimension_api_names,
+                    metrics_api_names,
+                    start_date=start_date,
+                    end_date=end_date,
                     dimension_filter=dimension_filter,
                     metric_filter=metric_filter,
                     order_bys=order_bys,
@@ -578,6 +663,8 @@ class RoboGA4:
                 )
                 if len(data) > 0:
                     all_rows.extend(data)
+                    if offset == 0:
+                        print(f"Total {row_count} rows found.")
                     print(f"p{page}: retrieved #{offset + 1} - #{offset + len(data)}")
                     if offset + len(data) == row_count:
                         break
@@ -588,13 +675,14 @@ class RoboGA4:
                     break
 
             if len(all_rows) > 0:
-                print(f"\nTotal: {len(all_rows)} rows")
+                print(f"\nAll {len(all_rows)} rows were retrieved.")
             else:
                 print("no data found.")
 
             if to_pd:
                 df = pd.DataFrame(all_rows, columns=headers)
                 df = utils.change_column_type(df)
+                df.columns = dimensions + metrics
                 return df
             else:
                 return all_rows, headers, types
@@ -602,6 +690,20 @@ class RoboGA4:
         """
         reports
         """
+        def audit(self, dimension: str):
+            dimensions = [dimension, 'date']
+            metrics = ['eventCount']
+            df_e = self.run(
+                dimensions,
+                metrics,
+                start_date=self.parent.property.created_time.strftime("%Y-%m-%d"),
+                end_date='yesterday'
+            )
+            return df_e.groupby(dimension).sum().merge(
+                df_e.groupby(dimension).agg({'date': 'min'}), on=dimension, how='left').merge(
+                df_e.groupby(dimension).agg({'date': 'max'}), on=dimension, how='left',
+                suffixes=['_first', '_last'])
+
         def pv_by_day(self):
             dimensions = [
                 'date',
@@ -697,6 +799,35 @@ class RoboGA4:
                     desc=True,
                     metric=OrderBy.MetricOrderBy(
                         metric_name="eventCount"
+                    )
+                ),
+            ]
+            return self.run(
+                dimensions,
+                metrics,
+                # dimension_filter=dimension_filter,
+                order_bys=order_bys
+            )
+
+        def custom_dimensions(self):
+            dimensions = [
+                'date',
+                'eventName',
+            ]
+            metrics = [
+                'eventCount',
+            ]
+            # dimension_filter = FilterExpression(
+            #     filter=Filter(
+            #         field_name="eventName",
+            #         string_filter=Filter.StringFilter(value="page_view"),
+            #     )
+            # )
+            order_bys = [
+                OrderBy(
+                    desc=False,
+                    dimension=OrderBy.DimensionOrderBy(
+                        dimension_name="date"
                     )
                 ),
             ]
