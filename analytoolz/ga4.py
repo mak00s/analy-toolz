@@ -33,7 +33,7 @@ from google.oauth2.credentials import Credentials
 from . import utils
 
 
-class RoboGA4:
+class GA4:
     required_scopes = [
         'https://www.googleapis.com/auth/analytics.edit',
         'https://www.googleapis.com/auth/analytics.readonly',
@@ -179,9 +179,10 @@ class RoboGA4:
             self.currency = None
             self.industry = None
             self.service_level = None
+            self.data_retention = None
+            self.data_retention_reset_on_activity = None
             self.api_custom_dimensions = None
             self.api_custom_metrics = None
-            self.api_data_retention = None
             self.api_metadata = None
             self.dimensions = None
             self.metrics = None
@@ -262,6 +263,20 @@ class RoboGA4:
                     results.append(dict)
                 return results
 
+        def _get_data_retention(self):
+            """Returns data retention settings for the property."""
+            try:
+                item = self.parent.admin_client.get_data_retention_settings(
+                    name=f"properties/{self.id}/dataRetentionSettings")
+            except Exception as e:
+                print(e)
+            else:
+                dict = {
+                    'data_retention': DataRetentionSettings.RetentionDuration(item.event_data_retention).name,
+                    'reset_user_data_on_new_activity': item.reset_user_data_on_new_activity,
+                }
+                return dict
+
         def select(self, id: str):
             if id:
                 if id != self.id:
@@ -279,9 +294,10 @@ class RoboGA4:
             self.currency = None
             self.industry = None
             self.service_level = None
+            self.data_retention = None
+            self.data_retention_reset_on_activity = None
             self.api_custom_dimensions = None
             self.api_custom_metrics = None
-            self.api_data_retention = None
             self.api_metadata = None
             self.dimensions = None
             self.metrics = None
@@ -290,24 +306,6 @@ class RoboGA4:
             self.clear()
             self.get_info()
             self.get_available()
-            # self.get_dimensions()
-            # self.get_metrics()
-            # self.get_data_retention()
-
-        def get_data_retention(self):
-            """Returns data retention settings for the property."""
-            try:
-                item = self.parent.admin_client.get_data_retention_settings(
-                    name=f"properties/{self.id}/dataRetentionSettings")
-            except Exception as e:
-                print(e)
-            else:
-                dict = {
-                    'data_retention': DataRetentionSettings.RetentionDuration(item.event_data_retention).name,
-                    'reset_user_data_on_new_activity': item.reset_user_data_on_new_activity,
-                }
-                self.api_data_retention = dict
-                return dict
 
         def get_info(self):
             """Get property data from parent account"""
@@ -319,6 +317,11 @@ class RoboGA4:
             self.currency = dict['currency']
             self.industry = dict['industry']
             self.service_level = dict['service_level']
+            if not self.data_retention:
+                dict2 = self._get_data_retention()
+                dict['data_retention'] = dict2['data_retention']
+                dict['data_retention_reset_on_activity'] = dict2['reset_user_data_on_new_activity']
+
             return dict
 
         def get_available(self):
@@ -376,11 +379,35 @@ class RoboGA4:
             elif me == 'dimensions':
                 res = self.get_dimensions()
             elif me == 'custom_dimensions':
-                index_col = None
-                res = self.get_available()['dimensions']
+                index_col = 'api_name'
+                dict = self.get_dimensions()
+                res = []
+                for r in dict:
+                    if r['customized']:
+                        res.append({
+                            'display_name': r['display_name'],
+                            'api_name': r['api_name'],
+                            'parameter_name': r['parameter_name'],
+                            'description': r['description'],
+                            'scope': r['scope'],
+                        })
+
             elif me == 'custom_metrics':
-                index_col = None
-                res = self.get_available()['metrics']
+                index_col = 'api_name'
+                dict = self.get_metrics()
+                res = []
+                for r in dict:
+                    if r['customized']:
+                        res.append({
+                            'display_name': r['display_name'],
+                            'api_name': r['api_name'],
+                            'description': r['description'],
+                            'type': r['type'] if 'type' in r else '',
+                            'scope': r['scope'] if 'scope' in r else '',
+                            'parameter_name': r['parameter_name'] if 'parameter_name' in r else '',
+                            'unit': r['unit'] if 'unit' in r else '',
+                            'expression': r['expression'],
+                        })
             elif me == 'info':
                 res = [self.get_info()]
                 index_col = 'id'
@@ -698,7 +725,7 @@ class RoboGA4:
             return df_e.groupby(dimension).sum().merge(
                 df_e.groupby(dimension).agg({'date': 'min'}), on=dimension, how='left').merge(
                 df_e.groupby(dimension).agg({'date': 'max'}), on=dimension, how='left',
-                suffixes=['_first', '_last'])
+                suffixes=['_first', '_last']).sort_values(by=['eventCount'], ascending=False)
 
         def pv_by_day(self):
             dimensions = [
