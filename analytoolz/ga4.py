@@ -2,6 +2,7 @@
 Functions for Google Analytics 4 API
 """
 
+from collections import OrderedDict
 from datetime import datetime
 import pandas as pd
 import pytz
@@ -61,7 +62,7 @@ class GA4:
 
     def authorize(self):
         if isinstance(self.credentials, Credentials):
-            print("Launching RoboGA4")
+            print("Launching megaton GA4")
             self.data_client = BetaAnalyticsDataClient(credentials=self.credentials)
             self.admin_client = AnalyticsAdminServiceClient(credentials=self.credentials)
             self.update()
@@ -356,7 +357,7 @@ class GA4:
             for m in self.api_metadata['metrics']:
                 dict = m.copy()
                 if m['customized'] == True:
-                    for c in self.api_custom_metrics:
+                    for c in self.api_custom_metrics or {}:
                         if m['display_name'] == c['display_name']:
                             dict['description'] = c['description']
                             dict['parameter_name'] = c['parameter_name']
@@ -371,13 +372,23 @@ class GA4:
         def show(
                 self,
                 me: str = 'info',
-                index_col: str = 'parameter_name'
+                index_col: str = None #'parameter_name'
         ):
             res = None
             if me == 'metrics':
-                res = self.get_metrics()
+                list_of_dict = self.get_metrics()
+                my_order = ["category", "display_name", "description", "api_name", "parameter_name", "scope", "unit", "expression"]
+                res = []
+                for d in list_of_dict:
+                    res.append(OrderedDict((k, d[k]) for k in my_order if k in d.keys()))
+                sort_values = ['customized', 'category', 'display_name']
             elif me == 'dimensions':
-                res = self.get_dimensions()
+                list_of_dict = self.get_dimensions()
+                my_order = ["category", "display_name", "description", "api_name", "parameter_name", "scope"]
+                res = []
+                for d in list_of_dict:
+                    res.append(OrderedDict((k, d[k]) for k in my_order if k in d.keys()))
+                sort_values = ['customized', 'category', 'display_name']
             elif me == 'custom_dimensions':
                 index_col = 'api_name'
                 dict = self.get_dimensions()
@@ -417,7 +428,7 @@ class GA4:
                     return pd.DataFrame(res).set_index(index_col)
                 else:
                     return pd.DataFrame(res)
-            return pd.DataFrame()
+            return pd.DataFrame().sort_values(by=sort_values)
 
         def create_custom_dimension(
                 self,
@@ -688,7 +699,7 @@ class GA4:
                     all_rows.extend(data)
                     if offset == 0:
                         print(f"Total {row_count} rows found.")
-                    print(f"p{page}: retrieved #{offset + 1} - #{offset + len(data)}")
+                    print(f" p{page}: retrieved #{offset + 1} - #{offset + len(data)}")
                     if offset + len(data) == row_count:
                         break
                     else:
@@ -698,34 +709,70 @@ class GA4:
                     break
 
             if len(all_rows) > 0:
-                print(f"\nAll {len(all_rows)} rows were retrieved.")
+                print(f"All {len(all_rows)} rows were retrieved.")
+                if to_pd:
+                    df = pd.DataFrame(all_rows, columns=headers)
+                    df = utils.change_column_type(df)
+                    df.columns = dimensions + metrics
+                    return df
+                else:
+                    return all_rows, headers, types
             else:
                 print("no data found.")
-
-            if to_pd:
-                df = pd.DataFrame(all_rows, columns=headers)
-                df = utils.change_column_type(df)
-                df.columns = dimensions + metrics
-                return df
-            else:
-                return all_rows, headers, types
+                if to_pd:
+                    return pd.DataFrame()
+                else:
+                    return all_rows, headers, types
 
         """
         reports
         """
-        def audit(self, dimension: str):
-            dimensions = [dimension, 'date']
-            metrics = ['eventCount']
+        def audit(self, dimension: str = 'eventName', metric: str = 'eventCount'):
+            """Audit collected data for a dimension or a metric specified
+            Args:
+                dimension (str): api_name or display_name of a dimension
+            """
             df_e = self.run(
-                dimensions,
-                metrics,
+                [dimension, 'date'],
+                [metric],
                 start_date=self.parent.property.created_time.strftime("%Y-%m-%d"),
                 end_date='yesterday'
             )
-            return df_e.groupby(dimension).sum().merge(
-                df_e.groupby(dimension).agg({'date': 'min'}), on=dimension, how='left').merge(
-                df_e.groupby(dimension).agg({'date': 'max'}), on=dimension, how='left',
-                suffixes=['_first', '_last']).sort_values(by=['eventCount'], ascending=False)
+            if len(df_e) > 0:
+                return df_e.groupby(dimension).sum().merge(
+                    df_e.groupby(dimension).agg({'date': 'min'}), on=dimension, how='left').merge(
+                    df_e.groupby(dimension).agg({'date': 'max'}), on=dimension, how='left',
+                    suffixes=['_first', '_last']).sort_values(by=[metric], ascending=False)
+            else:
+                return pd.DataFrame()
+
+        def audit_dimensions(self, only: list = [], ignore: list = []):
+            """ディメンションの計測アイテム毎の回数・記録された最初と最後の日
+            """
+            if not only:
+                only = self.parent.property.show('custom_dimensions').index.to_list()
+
+            dict = {}
+            for item in only:
+                if item not in ignore:
+                    print(f"Auditing dimension {item}...")
+                    dict[item] = self.audit(item)
+                    print()
+            print("...done")
+            return dict
+
+        def audit_metrics(self, only: list = [], ignore: list = []):
+            if not only:
+                only = [d['api_name'] for d in self.parent.property.metrics if 'scope' in d]
+
+            dict = {}
+            for item in only:
+                if item not in ignore:
+                    print(f"Auditing metric {item}...")
+                    dict[item] = self.audit(metric=item)
+                    print()
+            print("...done")
+            return dict
 
         def pv_by_day(self):
             dimensions = [
