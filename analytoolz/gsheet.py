@@ -4,6 +4,7 @@ Functions for Google Sheets
 
 from gspread_dataframe import set_with_dataframe
 import gspread
+import pandas as pd
 
 
 class LaunchGS:
@@ -50,8 +51,14 @@ class LaunchGS:
             self,
             sheet_name: str
     ):
-        self.sheet = self.workbook.worksheet(sheet_name)
-        return self.sheet
+        try:
+            self.sheet = self.workbook.worksheet(sheet_name)
+            return self.sheet
+        except gspread.exceptions.APIError as e:
+            ej = e.response.json()['error']
+            if ej['status'] == 'PERMISSION_DENIED':
+                print("Google SheetsのAPIが有効化されていません。")
+                print(ej['message'])
 
     def get_sheet_id(self):
         return self.sheet._properties['sheetId']
@@ -62,21 +69,30 @@ class LaunchGS:
                 dictionaries holding the contents of subsequent rows of cells as
                 values.
         """
+        if self.sheet == None:
+            print("Select sheet first.")
+            return
         data = self.sheet.get_all_records()
         return data
 
-    def overwrite_data(self, data, include_index: bool = False):
-        self.save_data(data, mode='w', include_index=include_index)
+    def overwrite_data(self, df: pd.DataFrame, include_index: bool = False):
+        self.save_data(df, mode='w', include_index=include_index)
 
     def save_data(
             self,
-            df,
+            df: pd.DataFrame,
             mode: str = 'a',
             row: int = 1,
             include_index: bool = False
     ):
         """Saves a dataframe to the sheet"""
-        if mode == 'w':
+        if len(df) == 0:
+            print("no data to write.")
+            return
+        elif self.sheet == None:
+            print("Select sheet first.")
+            return
+        elif mode == 'w':
             self.sheet.clear()
             set_with_dataframe(
                 self.sheet,
@@ -86,6 +102,7 @@ class LaunchGS:
                 row=row,
                 resize=True
             )
+            return df
         # elif mode == 'test':
         #     total_rows = self.sheet.row_count + 1
         #     first_empty_row = len(self.sheet.get_all_values()) + 1
@@ -103,6 +120,7 @@ class LaunchGS:
         else:
             data_list = df.values.tolist()
             self.sheet.append_rows(data_list)
+            return df
 
     def auto_resize(
             self,
