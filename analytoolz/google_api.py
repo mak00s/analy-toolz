@@ -211,3 +211,12 @@ def get_credentials(file: str, scopes, cache_path: str):
                 file.write(credentials.to_json())
 
     return credentials
+
+
+def reset_credentials(cache_path: str):
+    """Reset Credentials
+    """
+    if os.path.isfile(cache_path):
+        # delete the cache
+        print(f"deleting {cache_path}")
+        os.remove(cache_path)
