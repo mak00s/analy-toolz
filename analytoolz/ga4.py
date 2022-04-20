@@ -29,6 +29,7 @@ from google.analytics.data_v1beta.types import OrderBy
 from google.analytics.data_v1beta.types import RunReportRequest
 from google.analytics.data_v1beta.types import RunReportResponse
 from google.api_core.exceptions import PermissionDenied
+from google.api_core.exceptions import ServiceUnavailable
 from google.oauth2.credentials import Credentials
 
 from . import utils
@@ -89,10 +90,18 @@ class GA4:
                     print("GCPのプロジェクトでAdmin APIを有効化してください。")
             message = getattr(e, 'message', repr(e))
             print(message)
+        except ServiceUnavailable as e:
+            value = str(sys.exc_info()[1])
+            m = re.search(r"error: \('([^:']+): ([^']+)", value)
+            if m and m.group(1) == 'invalid_grant':
+                print(f"認証の期限が切れました。{m.group(2)}")
+                self.credentials = None
+            raise e
         except Exception as e:
             type, value, traceback = sys.exc_info()
-            print(type)
+            # print(type)
             print(value)
+            raise e
         else:
             results = []
             for i in results_iterator:
@@ -132,6 +141,13 @@ class GA4:
                     'filter': f"parent:accounts/{self.id}",
                     'show_deleted': False,
                 })
+            except ServiceUnavailable as e:
+                # str(sys.exc_info()[1])
+                type, value, traceback = sys.exc_info()
+                print(type)
+                print(value)
+                print(traceback)
+                raise e
             except Exception as e:
                 # print(e)
                 raise e
@@ -926,3 +942,13 @@ class GA4:
             (data, headers, types) = self.run(dimensions, metrics)
 
             return headers, data
+
+def convert_ga4_type_to_bq_type(type):
+    if type == 'string':
+        return 'STRING'
+    elif type == 'int':
+        return 'INT64'
+    elif type == 'float':
+        return 'FLOAT'
+    elif type == 'double':
+        return 'FLOAT'
