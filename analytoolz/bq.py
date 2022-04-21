@@ -119,7 +119,7 @@ class Megaton:
                 table.clustering_fields = clustering_fields
 
             # Make an API request.
-            table = client.create_table(table_ref)
+            table = self.parent.client.create_table(table_ref)
 
             print(f"Created table {table.table_id}", end='')
             if table.time_partitioning.field:
