@@ -155,16 +155,18 @@ class Megaton:
 
         def __init__(self, parent):
             self.parent = parent
+            self.clustering_fields = ['client_id', 'event_name']
+            self.clean_table_id = 'clean'
 
         def create_clean_table(self, schema):
             """Create a table to store flatten GA data."""
             print(f"Creating a table to store flatten GA data.")
             # Make an API request.
             self.table.create(
-                table_id='clean',
+                table_id=self.clean_table_id,
                 schema=self.get_schema(schema),
                 partitioning_field='date',
-                clustering_fields=['client_id', 'event_name']
+                clustering_fields=self.clustering_fields
             )
 
         def get_schema(self, dict):
@@ -182,16 +184,62 @@ class Megaton:
 
         def flatten_events(
                 self,
-                project_id,
-                dataset,
+                date1: str,
+                date2: str,
+                schema,
+                event_parameters=[],
+                user_properties=[],
+                to='dataframe'
+        ):
+            """Flatten event tables exported from GA4"""
+
+            sql = self.get_query_to_flatten_events(
                 date1,
                 date2,
                 schema,
                 event_parameters=[],
                 user_properties=[]
-        ):
-            """Flatten event tables exported from GA4"""
+            )
 
+            if to == 'dataframe':
+                # return the data as pandas dataframe
+                df = self.parent.run(sql).to_dataframe()
+                print(f"{len(df)} rows were retrieved.")
+                return df
+            elif to == 'table':
+                # append data to the clean table
+                self.parent.table.select(self.clean_table_id)
+                table_ref = self.parent.table.ref
+                rows_before = self.parent.table.instance.num_rows
+                print(f"Table {self.clean_table_id} had {rows_before} rows.")
+
+                job_config = bigquery.QueryJobConfig(
+                    # clustering_fields=self.clustering_fields,
+                    destination=table_ref,
+                    write_disposition=bigquery.WriteDisposition.WRITE_APPEND
+                )
+                # Start the query, passing in the extra configuration.
+                query_job = self.parent.client.query(sql, job_config=job_config)  # Make an API request.
+                result_iterator = query_job.result()  # Wait for the job to complete.
+
+                rows_after = result_iterator.total_rows
+                print(f"{rows_after - rows_before} rows were added to the table ({date1} - {date2})")
+                return result_iterator
+            else:
+                print(f"Unknown destination: {to}")
+
+        def get_query_to_flatten_events(
+                self,
+                date1: str,
+                date2: str,
+                schema,
+                event_parameters=[],
+                user_properties=[]
+        ):
+            """Return a query to flatten event tables exported from GA4"""
+
+            project_id = self.parent.id
+            dataset = self.parent.dataset.id
             query = f'''--GA4 flatten events
                 SELECT'''
 
@@ -221,6 +269,6 @@ class Megaton:
                     `{dataset}.events_*`
                 WHERE
                     _TABLE_SUFFIX >= '{date1}' AND _TABLE_SUFFIX <= '{date2}'
-                ORDER BY date, client_id, datetime'''
+                --ORDER BY date, client_id, datetime'''
 
-            return self.parent.run(query).to_dataframe()
+            return query
