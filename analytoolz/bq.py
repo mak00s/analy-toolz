@@ -113,13 +113,12 @@ class Megaton:
                 table.time_partitioning = bigquery.TimePartitioning(
                     type_=bigquery.TimePartitioningType.DAY,
                     field=partitioning_field,  # name of column to use for partitioning
-                    expiration_ms=0,
                 )
             if clustering_fields:
                 table.clustering_fields = clustering_fields
 
             # Make an API request.
-            table = self.parent.client.create_table(table_ref)
+            table = self.parent.client.create_table(table)
 
             print(f"Created table {table.table_id}", end='')
             if table.time_partitioning.field:
@@ -134,7 +133,7 @@ def get_bq_schema(dict):
             bigquery.SchemaField(
                 name=d['name'],
                 field_type=d['type'],
-                description='',
+                description=d['description'],
             )
         )
     return schema

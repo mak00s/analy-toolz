@@ -57,7 +57,10 @@ class LaunchGS:
         except gspread.exceptions.APIError as e:
             ej = e.response.json()['error']
             if ej['status'] == 'PERMISSION_DENIED':
-                print("Google SheetsのAPIが有効化されていません。")
+                if 'The caller does not have permission' in ej['message']:
+                    print("該当スプレッドシートを読み込む権限がありません。")
+                elif 'disabled' in ej['message']:
+                    print("Google SheetsのAPIが有効化されていません。")
                 print(ej['message'])
 
     def get_sheet_id(self):
