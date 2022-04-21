@@ -20,6 +20,7 @@ class Megaton:
         )
         self.dataset = self.Dataset(self)
         self.table = self.Table(self)
+        self.for_ga4 = self.ForGA4(self)
         self.update()
 
     def update(self):
@@ -33,10 +34,21 @@ class Megaton:
         else:
             print(f"project {self.id} does not have any datasets.")
 
+    def run(self, query):
+        """Run a SQL query and return data
+        Args:
+            query (str):
+                SQL query to be executed.
+        """
+        job = self.client.query(query=query)
+        results = job.result()  # Waits for job to complete.
+        return results
+
     class Dataset:
         def __init__(self, parent):
             self.parent = parent
             self.ref = None
+            self.instance = None
             self.id = None
             self.tables = None
 
@@ -48,17 +60,20 @@ class Megaton:
                 else:
                     print(f"dataset {id} is not found in the project {self.parent.id}")
             else:
+                self.ref = None
+                self.instance = None
                 self.id = None
-                self.parent.table.id = None
+                self.tables = None
+                self.parent.table.select()
 
         def update(self, dataset_id=None):
             """Get a list of table ids for the dataset"""
             id = dataset_id if dataset_id else self.id
 
             try:
-                # call api
                 dataset = self.parent.client.get_dataset(id)
-                self.ref = dataset
+                self.instance = dataset
+                self.ref = dataset.reference
                 self.id = id
             except NotFound as e:
                 if 'Not found: Dataset' in str(e):
@@ -78,7 +93,11 @@ class Megaton:
         def __init__(self, parent):
             self.parent = parent
             self.ref = None
+            self.instance = None
             self.id = None
+
+        def _get_info(self):
+            """Get metadata of the table"""
 
         def select(self, id: str):
             if id:
@@ -88,6 +107,8 @@ class Megaton:
                 else:
                     print(f"table {id} is not found in the dataset {self.parent.dataset.id}")
             else:
+                self.ref = None
+                self.instance = None
                 self.id = None
 
         def update(self, table_id=None):
@@ -95,9 +116,11 @@ class Megaton:
             id = table_id if table_id else self.id
             if self.parent.dataset.ref:
                 try:
-                    table = self.parent.dataset.ref.table(id)
-                    self.ref = table
+                    table_ref = self.parent.dataset.ref.table(id)
+                    self.ref = table_ref
+                    self.instance = self.parent.client.get_table(self.ref)
                     self.id = id
+                    self._get_info()
                 except Exception as e:
                     raise e
             else:
@@ -123,17 +146,81 @@ class Megaton:
             print(f"Created table {table.table_id}", end='')
             if table.time_partitioning.field:
                 print(f", partitioned on column {table.time_partitioning.field}")
+            self.parent.dataset.update()
+
             return table
 
+    class ForGA4:
+        """utilities to manage GA4"""
 
-def get_bq_schema(dict):
-    schema = []
-    for d in dict:
-        schema.append(
-            bigquery.SchemaField(
-                name=d['name'],
-                field_type=d['type'],
-                description=d['description'],
+        def __init__(self, parent):
+            self.parent = parent
+
+        def create_clean_table(self, schema):
+            """Create a table to store flatten GA data."""
+            print(f"Creating a table to store flatten GA data.")
+            # Make an API request.
+            self.table.create(
+                table_id='clean',
+                schema=self.get_schema(schema),
+                partitioning_field='date',
+                clustering_fields=['client_id', 'event_name']
             )
-        )
-    return schema
+
+        def get_schema(self, dict):
+            """Convert a dictionary to BigQuery Schema"""
+            schema = []
+            for d in dict:
+                schema.append(
+                    bigquery.SchemaField(
+                        name=d['name'],
+                        field_type=d['type'],
+                        description='test',
+                    )
+                )
+            return schema
+
+        def flatten_events(
+                self,
+                project_id,
+                dataset,
+                date1,
+                date2,
+                schema,
+                event_parameters=[],
+                user_properties=[]
+        ):
+            """Flatten event tables exported from GA4"""
+
+            query = f'''--GA4 flatten events
+                SELECT'''
+
+            for s in schema:
+                if s['Category']:
+                    query += f'''
+                    --{s['Category']}'''
+                query += f'''
+                    {s['Select']} AS {s['Field Name']},'''
+
+            if user_properties:
+                query += f'''
+                    --Custom User Properties'''
+                for d in user_properties:
+                    query += f'''
+                    (SELECT value.{d['type']}_value FROM UNNEST(user_properties) WHERE key = '{d['key']}') AS {d['field_name']},'''
+
+            if event_parameters:
+                query += f'''
+                    --Custom Event Parameters'''
+                for d in event_parameters:
+                    query += f'''
+                    (SELECT value.{d['type']}_value FROM UNNEST(event_params) WHERE key = '{d['key']}') AS {d['field_name']},'''
+
+            query += f'''
+                FROM
+                    `{dataset}.events_*`
+                WHERE
+                    _TABLE_SUFFIX >= '{date1}' AND _TABLE_SUFFIX <= '{date2}'
+                ORDER BY date, client_id, datetime'''
+
+            return self.parent.run(query).to_dataframe()

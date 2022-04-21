@@ -203,7 +203,6 @@ class GA4:
             self.api_metadata = None
             self.dimensions = None
             self.metrics = None
-            # self.clear()
 
         def _get_metadata(self):
             """Returns available custom dimensions and custom metrics for the property."""
@@ -488,15 +487,6 @@ class GA4:
             print(f"{which[:-1]} {before} is not found.")
             return None
 
-        # def _get_dimension_api_name(self, dim: str):
-        #     name = [
-        #         'custom'
-        #         + r['scope'][0:].title()
-        #         + ':'
-        #         + r['parameter_name']
-        #         for r in self.parent.property.dimensions if r['parameter_name'] == dim][0]
-        #     return name
-
         def _ga4_response_to_dict(self, response: RunReportResponse):
             dim_len = len(response.dimension_headers)
             metric_len = len(response.metric_headers)
@@ -615,12 +605,8 @@ class GA4:
                 offset: int = 0,
         ):
             dimensions_ga4 = [Dimension(name=d) for d in dimensions]
-            # for d in dimensions:
-            #     dimensions_ga4.append(Dimension(name=d))
 
             metrics_ga4 = [Metric(name=m) for m in metrics]
-            # for m in metrics:
-            #     metrics_ga4.append(Metric(name=m))
 
             date_ranges = [DateRange(start_date=start_date, end_date=end_date)]
 
