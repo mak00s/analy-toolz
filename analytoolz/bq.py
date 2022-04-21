@@ -24,7 +24,7 @@ class Megaton:
 
     def update(self):
         """Get a list of dataset ids for the project"""
-        # call api
+        # Make an API request.
         datasets = list(self.client.list_datasets())
 
         if datasets:
@@ -65,7 +65,7 @@ class Megaton:
                     print(f"Dataset {dataset_id} is not found in the project {self.parent.id}")
                 return False
 
-            # call api
+            # Make an API request.
             tables = list(self.parent.client.list_tables(dataset))
 
             if tables:
@@ -95,7 +95,6 @@ class Megaton:
             id = table_id if table_id else self.id
             if self.parent.dataset.ref:
                 try:
-                    # call api
                     table = self.parent.dataset.ref.table(id)
                     self.ref = table
                     self.id = id
@@ -117,7 +116,7 @@ class Megaton:
                 )
 
             # Make an API request.
-            table = client.create_table(table_ref)
+            table = self.parent.client.create_table(table_ref)
 
             print(f"Created table {table.table_id}", end='')
             if table.time_partitioning.field:
