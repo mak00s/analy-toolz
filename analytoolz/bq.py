@@ -162,7 +162,7 @@ class Megaton:
             """Create a table to store flatten GA data."""
             print(f"Creating a table to store flatten GA data.")
             # Make an API request.
-            self.table.create(
+            self.parent.table.create(
                 table_id=self.clean_table_id,
                 schema=self.get_schema(schema),
                 partitioning_field='date',
