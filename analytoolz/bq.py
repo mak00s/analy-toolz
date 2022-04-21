@@ -103,7 +103,8 @@ class Megaton:
             else:
                 print("Please select a dataset first.")
 
-        def create(self, table_id: str, schema: bigquery.SchemaField, partitioning_field: str = ''):
+        def create(self, table_id: str, schema: bigquery.SchemaField, partitioning_field: str = '',
+                   clustering_fields=[]):
             dataset_ref = self.parent.dataset.ref
             table_ref = dataset_ref.table(table_id)
             table = bigquery.Table(table_ref, schema=schema)
@@ -114,9 +115,11 @@ class Megaton:
                     field=partitioning_field,  # name of column to use for partitioning
                     expiration_ms=0,
                 )
+            if clustering_fields:
+                table.clustering_fields = clustering_fields
 
             # Make an API request.
-            table = self.parent.client.create_table(table_ref)
+            table = client.create_table(table_ref)
 
             print(f"Created table {table.table_id}", end='')
             if table.time_partitioning.field:
@@ -131,7 +134,7 @@ def get_bq_schema(dict):
             bigquery.SchemaField(
                 name=d['name'],
                 field_type=d['type'],
-                description='test',
+                description='',
             )
         )
     return schema
