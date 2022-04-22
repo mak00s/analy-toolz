@@ -3,6 +3,7 @@ Functions for Google Cloud BigQuery
 """
 
 from google.cloud import bigquery
+from google.cloud import bigquery_datatransfer
 from google.cloud.exceptions import NotFound
 
 
@@ -16,6 +17,9 @@ class Megaton:
         self.credentials = credentials
         self.client = bigquery.Client(
             project=self.id,
+            credentials=self.credentials
+        )
+        self.dts_client = bigquery_datatransfer.DataTransferServiceClient(
             credentials=self.credentials
         )
         self.dataset = self.Dataset(self)
@@ -211,7 +215,7 @@ class Megaton:
                 self.parent.table.select(self.clean_table_id)
                 table_ref = self.parent.table.ref
                 rows_before = self.parent.table.instance.num_rows
-                print(f"Table {self.clean_table_id} had {rows_before} rows.")
+                print(f"The table '{self.clean_table_id}' had {rows_before} rows.")
 
                 job_config = bigquery.QueryJobConfig(
                     # clustering_fields=self.clustering_fields,
@@ -223,7 +227,7 @@ class Megaton:
                 result_iterator = query_job.result()  # Wait for the job to complete.
 
                 rows_after = result_iterator.total_rows
-                print(f"{rows_after - rows_before} rows were added to the table ({date1} - {date2})")
+                print(f"{rows_after - rows_before} rows were added for the period ({date1} - {date2})")
                 return result_iterator
             else:
                 print(f"Unknown destination: {to}")
@@ -234,13 +238,34 @@ class Megaton:
                 date2: str,
                 schema,
                 event_parameters=[],
-                user_properties=[]
+                user_properties=[],
+                to='select'
         ):
             """Return a query to flatten event tables exported from GA4"""
 
             project_id = self.parent.id
             dataset = self.parent.dataset.id
-            query = f'''--GA4 flatten events
+            table_id = self.clean_table_id
+
+            if to == 'scheduled_query':
+                query = f'''DECLARE Yesterday DATE DEFAULT DATE_SUB(DATE(@run_time, "Asia/Tokyo"), INTERVAL 1 DAY);
+DECLARE YesterdayRecords DEFAULT (
+    --check if data already exists
+    SELECT COUNT(1)
+    FROM `{dataset}.{table_id}`
+    WHERE date = Yesterday
+);
+
+IF YesterdayRecords > 0 THEN
+    --skip
+    RAISE USING MESSAGE = FORMAT("%t already has %d records. skipping...", Yesterday, YesterdayRecords);
+ELSE
+    --go ahead
+    INSERT INTO `{dataset}.{table_id}` (
+        '''
+            else:
+                query = '        '
+            query += f'''--GA4 flatten events
                 SELECT'''
 
             for s in schema:
@@ -268,7 +293,53 @@ class Megaton:
                 FROM
                     `{dataset}.events_*`
                 WHERE
-                    _TABLE_SUFFIX >= '{date1}' AND _TABLE_SUFFIX <= '{date2}'
-                --ORDER BY date, client_id, datetime'''
+                    '''
+
+            if to == 'scheduled_query':
+                query += f"""_TABLE_SUFFIX = FORMAT_DATE("%Y%m%d", Yesterday)
+    );
+END IF;"""
+
+            else:
+                query += f"""_TABLE_SUFFIX >= '{date1}' AND _TABLE_SUFFIX <= '{date2}'"""
 
             return query
+
+        def schedule_query_to_flatten_events(
+                self,
+                schema,
+                event_parameters=[],
+                user_properties=[]
+        ):
+            """Save a scheduled query to flatten event tables exported from GA4"""
+            sql = self.get_query_to_flatten_events('', '',
+                                                   schema,
+                                                   custom_event_parameters,
+                                                   custom_user_properties,
+                                                   to='scheduled_query')
+
+            dataset_id = self.parent.dataset.id
+            table_id = self.parent.table.id
+
+            transfer_config = bigquery_datatransfer.TransferConfig(
+                # destination_dataset_id=dataset_id,
+                display_name=f"Flatten GA4 events for {dataset_id}",
+                data_source_id="scheduled_query",
+                params={
+                    "query": sql,
+                    # "destination_table_name_template": table_id,
+                    # "write_disposition": "WRITE_APPEND",
+                    # "partitioning_field": "date"
+                },
+                schedule="every 4 hours",
+            )
+
+            request = bigquery_datatransfer.CreateTransferConfigRequest(
+                parent=self.parent.dts_client.common_location_path(self.parent.id,
+                                                                   self.parent.dataset.instance.location),
+                transfer_config=transfer_config,
+            )
+
+            response = self.parent.dts_client.create_transfer_config(request=request)
+            print(f"Schedule query was created: {response.name}")
+            return response
