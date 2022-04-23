@@ -314,8 +314,8 @@ END IF;"""
             """Save a scheduled query to flatten event tables exported from GA4"""
             sql = self.get_query_to_flatten_events('', '',
                                                    schema,
-                                                   custom_event_parameters,
-                                                   custom_user_properties,
+                                                   event_parameters,
+                                                   user_properties,
                                                    to='scheduled_query')
 
             dataset_id = self.parent.dataset.id

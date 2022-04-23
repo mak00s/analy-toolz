@@ -1,19 +1,20 @@
 from setuptools import setup, find_packages
 
 with open("README.md", "r") as f:
-    long_description = f.read()
+    readme = f.read()
 
 setup(
     name='analytoolz',
-    version='0.2.2',
+    version='0.2.3',
     author='Mak Shimizu',
     author_email='mak@fish.razor.jp',
     description='Utilities for Google Analytics and Google Cloud Platform.',
-    long_description=long_description,
+    long_description=readme,
     long_description_content_type='ext/markdown',
     packages=find_packages(),
-    classifiers=(
+    classifiers=[
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",
-    ),
+        "Topic :: Internet",
+    ],
 )
