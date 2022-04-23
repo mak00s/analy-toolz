@@ -327,9 +327,6 @@ END IF;"""
                 data_source_id="scheduled_query",
                 params={
                     "query": sql,
-                    # "destination_table_name_template": table_id,
-                    # "write_disposition": "WRITE_APPEND",
-                    # "partitioning_field": "date"
                 },
                 schedule="every 4 hours",
             )
@@ -340,6 +337,16 @@ END IF;"""
                 transfer_config=transfer_config,
             )
 
-            response = self.parent.dts_client.create_transfer_config(request=request)
-            print(f"Schedule query was created: {response.name}")
-            return response
+            try:
+                response = self.parent.dts_client.create_transfer_config(request=request)
+                print(f"Schedule query was created: {response.name}")
+                return response
+            except PermissionDenied as e:
+                print("権限がありません。")
+                m = re.search(r'reason: "([^"]+)', str(sys.exc_info()[1]))
+                if m:
+                    reason = m.group(1)
+                    if reason == 'SERVICE_DISABLED':
+                        print("GCPのプロジェクトでBigQuery Data Transfer APIを有効化してください。")
+                message = getattr(e, 'message', repr(e))
+                print(message)
