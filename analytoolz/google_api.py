@@ -2,6 +2,7 @@
 Functions for Google API
 """
 
+from typing import List, Optional
 import json
 import logging
 import os
@@ -150,25 +151,25 @@ class MethodHelper(object):
         return MethodHelper(self.google_api, self.service, name, self.path).call
 
 
-def _is_service_account_json(file):
+def _is_service_account_json(file: str):
     """Return true if the provided JSON file is for a service account."""
     with open(file, 'r') as f:
         return _is_service_account_key(f.read())
 
 
-def _is_service_account_key(key_json_text):
-  """Return true if the provided text is a JSON service credentials file."""
-  try:
-    key_obj = json.loads(key_json_text)
-  except json.JSONDecodeError:
-    return False
-  if not key_obj or key_obj.get('type', '') != 'service_account':
-    return False
-  return True
+def _is_service_account_key(key_json_text: str):
+    """Return true if the provided text is a JSON service credentials file."""
+    try:
+        key_obj = json.loads(key_json_text)
+    except json.JSONDecodeError:
+        return False
+    if not key_obj or key_obj.get('type', '') != 'service_account':
+        return False
+    return True
 
 
-def _run_auth_flow(client_secret_file, scopes, config=None):
-    """ Run OAuth2 Flow
+def _run_auth_flow(client_secret_file: Optional[str], scopes: List[str], config: Optional[dict] = {}):
+    """Run OAuth2 Flow
     """
     if os.path.exists(client_secret_file):
         flow = InstalledAppFlow.from_client_secrets_file(
@@ -189,34 +190,55 @@ def _run_auth_flow(client_secret_file, scopes, config=None):
     time.sleep(4)
     code = input("以下の入力欄に貼り付けてエンターキーを押してください")
     flow.fetch_token(code=code)
-    credentials = flow.credentials
-    return credentials
+    return flow.credentials
 
 
-def get_credentials(file: str, scopes, cache_path: str):
+def get_credentials(json_file: Optional[str], scopes: List[str], cache_file: str = ''):
     """Get Credentials
     """
-    if _is_service_account_json(file):
-        credentials = service_account.Credentials.from_service_account_file(file)
+    if _is_service_account_json(json_file):
+        # service account
+        credentials = service_account.Credentials.from_service_account_file(json_file)
     else:
-        if os.path.isfile(cache_path):
-            # use cache
-            print(f"loading {cache_path}")
-            credentials = Credentials.from_authorized_user_file(cache_path, scopes=scopes)
+        # oauth2
+        if not cache_file:
+            cache_file = get_cache_filename_from_json(json_file)
+        credentials = load_credentials_from_cache(cache_file, scopes)
+        if credentials:
+            return credentials
         else:
-            credentials = _run_auth_flow(file, scopes)
+            # no cache found, so run auth flow
+            credentials = _run_auth_flow(json_file, scopes)
             # save cache
-            print(f"saving cache to {cache_path}")
-            with open(cache_path, 'w') as file:
-                file.write(credentials.to_json())
+            return save_credentials_to_cache(cache_file, credentials)
 
+
+def get_cache_filename_from_json(source_file: str):
+    """Name cache file based on the provided source file"""
+    base_name = os.path.splitext(os.path.basename(source_file))[0]
+    return f".{base_name}_cached-cred.json"
+
+
+def save_credentials_to_cache(cache_file: str, credentials: Credentials):
+    """Save Credentials to cache file
+    """
+    with open(cache_file, 'w') as w:
+        print(f"saving credentials to {cache_file}")
+        w.write(credentials.to_json())
     return credentials
 
 
-def reset_credentials(cache_path: str):
-    """Reset Credentials
+def load_credentials_from_cache(cache_file: str, scopes: list):
+    """Load Credentials from cache file
     """
-    if os.path.isfile(cache_path):
-        # delete the cache
-        print(f"deleting {cache_path}")
-        os.remove(cache_path)
+    if os.path.isfile(cache_file):
+        print(f"loading credentials from {cache_file}")
+        return Credentials.from_authorized_user_file(cache_file, scopes=scopes)
+
+
+def delete_credentials_cache(cache_file: str = "creden-cache.json"):
+    """Delete Credentials cache file
+    """
+    if os.path.isfile(cache_file):
+        print(f"deleting cache file {cache_file}")
+        os.remove(cache_file)

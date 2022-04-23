@@ -9,7 +9,7 @@ import os
 from google.colab import drive
 
 
-def mount_gdrive(path="/content/drive"):
+def mount_gdrive(path: str = "/content/drive"):
     """ Mount Google Drive
     """
     if not os.path.isdir(path):

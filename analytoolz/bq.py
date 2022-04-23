@@ -2,19 +2,21 @@
 Functions for Google Cloud BigQuery
 """
 
+from typing import Dict, List
+import re
+import sys
+
 from google.api_core.exceptions import PermissionDenied
 from google.cloud import bigquery
 from google.cloud import bigquery_datatransfer
 from google.cloud.exceptions import NotFound
-import re
-import sys
 
 
 class Megaton:
     """Class for Google Cloud BigQuery client
     """
 
-    def __init__(self, credentials, project_id):
+    def __init__(self, credentials, project_id: str):
         self.id = project_id
         self.datasets = None
         self.credentials = credentials
@@ -41,7 +43,7 @@ class Megaton:
         else:
             print(f"project {self.id} does not have any datasets.")
 
-    def run(self, query):
+    def run(self, query: str):
         """Run a SQL query and return data
         Args:
             query (str):
@@ -73,7 +75,7 @@ class Megaton:
                 self.tables = None
                 self.parent.table.select()
 
-        def update(self, dataset_id=None):
+        def update(self, dataset_id: str = ''):
             """Get a list of table ids for the dataset"""
             id = dataset_id if dataset_id else self.id
 
@@ -118,7 +120,7 @@ class Megaton:
                 self.instance = None
                 self.id = None
 
-        def update(self, table_id=None):
+        def update(self, table_id: str = ''):
             """Get an api reference for a table"""
             id = table_id if table_id else self.id
             if self.parent.dataset.ref:
@@ -134,7 +136,7 @@ class Megaton:
                 print("Please select a dataset first.")
 
         def create(self, table_id: str, schema: bigquery.SchemaField, partitioning_field: str = '',
-                   clustering_fields=[]):
+                   clustering_fields: list = []):
             dataset_ref = self.parent.dataset.ref
             table_ref = dataset_ref.table(table_id)
             table = bigquery.Table(table_ref, schema=schema)
@@ -165,38 +167,45 @@ class Megaton:
             self.clustering_fields = ['client_id', 'event_name']
             self.clean_table_id = 'clean'
 
-        def create_clean_table(self, schema):
+        def get_first_date_recorded(self):
+            partitions = [t for t in self.parent.dataset.tables if t.startswith('events_')]
+            if partitions:
+                return sorted(partitions)[0].replace("events_", "")
+
+        def create_clean_table(self, schema: Dict):
             """Create a table to store flatten GA data."""
-            print(f"Creating a table to store flatten GA data.")
+            print(f"Creating a table to store flattened GA data.")
             # Make an API request.
             self.parent.table.create(
                 table_id=self.clean_table_id,
-                schema=self.get_schema(schema),
+                description='This is a table to store flattened and optimized GA4 data based on the exported raw data.',
+                schema=self.dict_to_bq_schema(schema),
                 partitioning_field='date',
                 clustering_fields=self.clustering_fields
             )
 
-        def get_schema(self, dict):
-            """Convert a dictionary to BigQuery Schema"""
-            schema = []
-            for d in dict:
-                schema.append(
-                    bigquery.SchemaField(
-                        name=d['name'],
-                        field_type=d['type'],
-                        description='test',
-                    )
-                )
+        def dict_to_bq_schema(self, schema: Dict) -> List[bigquery.SchemaField]:
+            """Converts a dictionary to list of bigquery.SchemaField
+            for use with bigquery client library.
+            Dict must contain name and type keys.
+            """
+            return [
+                bigquery.SchemaField(
+                    name=x['name'],
+                    field_type=x['type'],
+                    description=x.get('description') if x.get('description') else '')
+                for x in schema
+            ]
             return schema
 
         def flatten_events(
                 self,
                 date1: str,
                 date2: str,
-                schema,
-                event_parameters=[],
-                user_properties=[],
-                to='dataframe'
+                schema: Dict,
+                event_parameters: list = [],
+                user_properties: list = [],
+                to: str = 'dataframe'
         ):
             """Flatten event tables exported from GA4"""
 
@@ -239,10 +248,10 @@ class Megaton:
                 self,
                 date1: str,
                 date2: str,
-                schema,
-                event_parameters=[],
-                user_properties=[],
-                to='select'
+                schema: Dict,
+                event_parameters: list = [],
+                user_properties: list = [],
+                to: str = 'select'
         ):
             """Return a query to flatten event tables exported from GA4"""
 
@@ -310,9 +319,9 @@ END IF;"""
 
         def schedule_query_to_flatten_events(
                 self,
-                schema,
-                event_parameters=[],
-                user_properties=[]
+                schema: Dict,
+                event_parameters: list = [],
+                user_properties: list = []
         ):
             """Save a scheduled query to flatten event tables exported from GA4"""
             sql = self.get_query_to_flatten_events('', '',
@@ -335,8 +344,9 @@ END IF;"""
             )
 
             request = bigquery_datatransfer.CreateTransferConfigRequest(
-                parent=self.parent.dts_client.common_location_path(self.parent.id,
-                                                                   self.parent.dataset.instance.location),
+                parent=self.parent.dts_client.common_location_path(
+                    self.parent.id,
+                    self.parent.dataset.instance.location),
                 transfer_config=transfer_config,
             )
 

@@ -30,59 +30,61 @@ from google.analytics.data_v1beta.types import RunReportRequest
 from google.analytics.data_v1beta.types import RunReportResponse
 from google.api_core.exceptions import PermissionDenied
 from google.api_core.exceptions import ServiceUnavailable
+from google.api_core.exceptions import Unauthenticated
 from google.oauth2.credentials import Credentials
 
-from . import utils
+from . import google_api, utils
 
 
-class GA4:
+class LaunchGA4:
     required_scopes = [
         'https://www.googleapis.com/auth/analytics.edit',
         'https://www.googleapis.com/auth/analytics.readonly',
     ]
 
-    def __init__(self, credentials, **kwargs):  # *args,
+    def __init__(self, credentials: Credentials):
         """constructor"""
         self.credentials = credentials
         self.data_client = None
         self.admin_client = None
-        self.account = self.Account(self)
         self.accounts = None
+        self.account = self.Account(self)
         self.property = self.Property(self)
         self.report = self.Report(self)
         if credentials:
             self.authorize()
 
-    def _parse_account_path(self, path: str):
+    def _get_account_id_from_account_path(self, path: str):
         dict = self.admin_client.parse_account_path(path)
         return dict.get('account')
 
-    def _parse_property_path(self, path: str):
+    def _get_property_id_from_property_path(self, path: str):
         dict = self.admin_client.parse_property_path(path)
         return dict.get('property')
 
     def authorize(self):
         if isinstance(self.credentials, Credentials):
-            print("Launching megaton GA4")
+            print("Megaton GA4 launched!")
             self.data_client = BetaAnalyticsDataClient(credentials=self.credentials)
             self.admin_client = AnalyticsAdminServiceClient(credentials=self.credentials)
-            self.update()
+            if not self.update():
+                return
         else:
-            print("credentials given are invalid.")
+            print("Error: The credentials given are in invalid format.")
             return
         if bool(set(self.credentials.scopes) & set(self.required_scopes)):
             # print("scopes look good")
-            pass
+            return True
         else:
-            print("the given scopes don't meet requirements.")
+            print("Error: The given scopes don't meet requirements.")
             return
 
     def update(self):
-        """Returns summaries of all accounts accessible by the caller."""
+        """Returns account summaries accessible by the caller."""
         try:
             results_iterator = self.admin_client.list_account_summaries()
         except PermissionDenied as e:
-            print("権限がありません。")
+            print("APIを使う権限がありません。")
             m = re.search(r'reason: "([^"]+)', str(sys.exc_info()[1]))
             if m:
                 reason = m.group(1)
@@ -94,9 +96,14 @@ class GA4:
             value = str(sys.exc_info()[1])
             m = re.search(r"error: \('([^:']+): ([^']+)", value)
             if m and m.group(1) == 'invalid_grant':
-                print(f"認証の期限が切れました。{m.group(2)}")
+                print(f"認証の期限が切れています。{m.group(2)}")
                 self.credentials = None
+                google_api.delete_credentials_cache()
             raise e
+        except Unauthenticated as e:
+            print("認証に失敗しました。")
+            self.credentials = None
+            print(sys.exc_info()[1])
         except Exception as e:
             type, value, traceback = sys.exc_info()
             # print(type)
@@ -106,13 +113,13 @@ class GA4:
             results = []
             for i in results_iterator:
                 dict1 = {
-                    'id': self._parse_account_path(i.account),
+                    'id': self._get_account_id_from_account_path(i.account),
                     'name': i.display_name,
                     'properties': [],
                 }
                 for p in i.property_summaries:
                     dict2 = {
-                        'id': self._parse_property_path(p.property),
+                        'id': self._get_property_id_from_property_path(p.property),
                         'name': p.display_name
                     }
                     dict1['properties'].append(dict2)
@@ -155,7 +162,7 @@ class GA4:
                 results = []
                 for i in results_iterator:
                     dict = {
-                        'id': self.parent._parse_property_path(i.name),
+                        'id': self.parent._get_property_id_from_property_path(i.name),
                         'name': i.display_name,
                         'time_zone': i.time_zone,
                         'currency': i.currency_code,
@@ -342,7 +349,7 @@ class GA4:
 
         def get_available(self):
             if not self.api_metadata:
-                self.api_metadata  = self._get_metadata()
+                self.api_metadata = self._get_metadata()
             return self.api_metadata
 
         def get_dimensions(self):

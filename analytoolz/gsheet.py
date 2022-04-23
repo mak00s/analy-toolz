@@ -2,9 +2,10 @@
 Functions for Google Sheets
 """
 
+import pandas as pd
+
 from gspread_dataframe import set_with_dataframe
 import gspread
-import pandas as pd
 
 
 class LaunchGS:
@@ -13,29 +14,31 @@ class LaunchGS:
 
     def __init__(
             self,
-            credentials,
-            *args,
-            **kwargs
+            credentials
     ):
         self.client = None
         self.credentials = credentials
         self.url = None
-        self.workbook = gspread.authorize(self.credentials)
+        self.workbook = None
         self.sheet = None
+        self.authorize()
+
+    def authorize(self):
+        self.client = gspread.authorize(self.credentials)
 
     def open(
             self,
             url: str,
             sheet: str = None
     ):
-        """Get or create a api service
+        """Get or create an api service
 
         Args:
             url (str): URL of the Google Sheets to open.
             sheet (str): Sheet name to open. optional
         """
-        if self.client is None:
-            self.client = gspread.authorize(self.credentials)
+        if not self.client:
+            self.authorize()
         self.workbook = self.client.open_by_url(url)
         if sheet:
             self.select_sheet(sheet)
@@ -45,7 +48,8 @@ class LaunchGS:
 
     def list_sheets(self):
         """Returns a list of sheet names"""
-        return self.workbook.worksheets()
+        if self.workbook:
+            return self.workbook.worksheets()
 
     def select_sheet(
             self,
@@ -54,6 +58,8 @@ class LaunchGS:
         try:
             self.sheet = self.workbook.worksheet(sheet_name)
             return self.sheet
+        except gspread.exceptions.WorksheetNotFound as e:
+            print(f"{sheet_name} シートが存在しません。")
         except gspread.exceptions.APIError as e:
             ej = e.response.json()['error']
             if ej['status'] == 'PERMISSION_DENIED':
@@ -72,14 +78,14 @@ class LaunchGS:
                 dictionaries holding the contents of subsequent rows of cells as
                 values.
         """
-        if self.sheet == None:
-            print("Select sheet first.")
+        if not self.sheet:
+            print("Please select a sheet first.")
             return
         data = self.sheet.get_all_records()
         return data
 
     def overwrite_data(self, df: pd.DataFrame, include_index: bool = False):
-        self.save_data(df, mode='w', include_index=include_index)
+        return self.save_data(df, mode='w', include_index=include_index)
 
     def save_data(
             self,
@@ -89,11 +95,11 @@ class LaunchGS:
             include_index: bool = False
     ):
         """Saves a dataframe to the sheet"""
-        if len(df) == 0:
+        if not len(df):
             print("no data to write.")
             return
-        elif self.sheet == None:
-            print("Select sheet first.")
+        elif not self.sheet:
+            print("Please select a sheet first.")
             return
         elif mode == 'w':
             self.sheet.clear()
@@ -106,20 +112,6 @@ class LaunchGS:
                 resize=True
             )
             return df
-        # elif mode == 'test':
-        #     total_rows = self.sheet.row_count + 1
-        #     first_empty_row = len(self.sheet.get_all_values()) + 1
-        #     print(f"from row={first_empty_row}, total={total_rows}")
-        #     self.sheet.add_rows(df.shape[0] + 1)
-        #     print(f"adding {df.shape[0]} rows.")
-        #     set_with_dataframe(
-        #         self.sheet,
-        #         df,
-        #         include_index=False,
-        #         include_column_header=False,
-        #         row=first_empty_row,
-        #         resize=False
-        #     )
         else:
             data_list = df.values.tolist()
             self.sheet.append_rows(data_list)
