@@ -6,6 +6,8 @@ from google.api_core.exceptions import PermissionDenied
 from google.cloud import bigquery
 from google.cloud import bigquery_datatransfer
 from google.cloud.exceptions import NotFound
+import re
+import sys
 
 
 class Megaton:
