@@ -102,7 +102,17 @@ class LaunchGS:
             print("Please select a sheet first.")
             return
         elif mode == 'w':
-            self.sheet.clear()
+            try:
+                self.sheet.clear()
+            except gspread.exceptions.APIError as e:
+                ej = e.response.json()['error']
+                if ej['status'] == 'PERMISSION_DENIED':
+                    if 'The caller does not have permission' in ej['message']:
+                        print("該当スプレッドシートを編集する権限がありません。")
+                    elif 'disabled' in ej['message']:
+                        print("Google SheetsのAPIが有効化されていません。")
+                    print(ej['message'])
+
             set_with_dataframe(
                 self.sheet,
                 df,

@@ -216,6 +216,15 @@ class LaunchGA4:
             path = self.parent.data_client.metadata_path(self.id)
             try:
                 response = self.parent.data_client.get_metadata(name=path)
+            except PermissionDenied as e:
+                print("APIを使う権限がありません。")
+                m = re.search(r'reason: "([^"]+)', str(sys.exc_info()[1]))
+                if m:
+                    reason = m.group(1)
+                    if reason == 'SERVICE_DISABLED':
+                        print("GCPのプロジェクトでGoogle Analytics Data APIを有効化してください。")
+                message = getattr(e, 'message', repr(e))
+                print(message)
             except Exception as e:
                 print(e)
                 raise e
