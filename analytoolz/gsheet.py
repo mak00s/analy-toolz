@@ -40,6 +40,16 @@ class LaunchGS:
         if not self.client:
             self.authorize()
         self.workbook = self.client.open_by_url(url)
+        try:
+            print(f"「{GS.workbook.title}」を開きました。")
+        except gspread.exceptions.APIError as e:
+            ej = e.response.json()['error']
+            if ej['status'] == 'PERMISSION_DENIED':
+                if 'The caller does not have permission' in ej['message']:
+                    print("該当スプレッドシートを読み込む権限がありません。")
+                elif 'disabled' in ej['message']:
+                    print("Google SheetsのAPIが有効化されていません。")
+                print(ej['message'])
         if sheet:
             self.select_sheet(sheet)
             return self.sheet
