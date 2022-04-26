@@ -42,7 +42,11 @@ class LaunchGS:
         try:
             self.workbook = self.client.open_by_url(url)
             print(f"「{self.workbook.title}」を開きました。")
-            return self.workbook
+            if sheet:
+                self.select_sheet(sheet)
+                return self.sheet
+            else:
+                return self.workbook
         except gspread.exceptions.APIError as e:
             ej = e.response.json()['error']
             if ej['status'] == 'PERMISSION_DENIED':
@@ -51,9 +55,6 @@ class LaunchGS:
                 elif 'disabled' in ej['message']:
                     print("Google SheetsのAPIが有効化されていません。")
                 print(ej['message'])
-        if sheet:
-            self.select_sheet(sheet)
-            return self.sheet
 
     def list_sheets(self):
         """Returns a list of sheet names"""
@@ -66,6 +67,7 @@ class LaunchGS:
     ):
         try:
             self.sheet = self.workbook.worksheet(sheet_name)
+            print(f"「{self.workbook.title}」のシートを選択しました。")
             return self.sheet
         except gspread.exceptions.WorksheetNotFound as e:
             print(f"{sheet_name} シートが存在しません。")
