@@ -215,8 +215,8 @@ class Megaton:
                 date1,
                 date2,
                 schema,
-                event_parameters=[],
-                user_properties=[]
+                event_parameters=event_parameters,
+                user_properties=user_properties,
             )
 
             if to == 'dataframe':
