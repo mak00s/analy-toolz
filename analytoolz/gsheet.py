@@ -39,8 +39,8 @@ class LaunchGS:
         """
         if not self.client:
             self.authorize()
-        self.workbook = self.client.open_by_url(url)
         try:
+            self.workbook = self.client.open_by_url(url)
             print(f"「{self.workbook.title}」を開きました。")
         except gspread.exceptions.APIError as e:
             ej = e.response.json()['error']
