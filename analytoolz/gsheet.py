@@ -63,11 +63,13 @@ class LaunchGS:
 
     def select_sheet(
             self,
-            sheet_name: str
+            sheet_name: str,
+            quiet: bool = False
     ):
         try:
             self.sheet = self.workbook.worksheet(sheet_name)
-            print(f"「{self.workbook.title}」のシートを選択しました。")
+            if not quiet:
+                print(f"「{self.sheet.title}」のシートを選択しました。")
             return self.sheet
         except gspread.exceptions.WorksheetNotFound as e:
             print(f"{sheet_name} シートが存在しません。")
@@ -80,6 +82,10 @@ class LaunchGS:
                     print("Google SheetsのAPIが有効化されていません。")
                 print(ej['message'])
 
+    def refresh_sheet(self):
+        return self.select_sheet(self.sheet.title, quiet=True)
+
+    @property
     def get_sheet_id(self):
         return self.sheet._properties['sheetId']
 
@@ -94,6 +100,14 @@ class LaunchGS:
             return
         data = self.sheet.get_all_records()
         return data
+
+    def get_next_available_row(self):
+        """looks for empty row based on values appearing in all columns
+        """
+        self.refresh_sheet()
+        cols = self.sheet.range(1, 1, self.sheet.row_count, self.sheet.col_count)
+        last = [cell.row for cell in cols if cell.value]
+        return max(last) + 1 if last else 1
 
     def overwrite_data(self, df: pd.DataFrame, include_index: bool = False):
         return self.save_data(df, mode='w', include_index=include_index)
@@ -133,9 +147,24 @@ class LaunchGS:
                 resize=True
             )
             return df
-        else:
-            data_list = df.values.tolist()
-            self.sheet.append_rows(data_list)
+        elif mode == 'a':
+            self.refresh_sheet()
+            next_row = row or self.get_next_available_row()
+            current_row = self.sheet.row_count
+            new_rows = df.shape[0]
+            if current_row < next_row + new_rows - 1:
+                # print(f"adding {next_row + new_rows - current_row - 1} rows")
+                self.sheet.add_rows(next_row + new_rows - current_row)
+                self.refresh_sheet()
+
+            set_with_dataframe(
+                self.sheet,
+                df,
+                include_index=include_index,
+                include_column_header=True,
+                row=next_row,
+                resize=False
+            )
             return df
 
     def auto_resize(
@@ -143,7 +172,7 @@ class LaunchGS:
             cols: list
     ):
         """Auto resize columns to fit text"""
-        sheet_id = self.get_sheet_id()
+        sheet_id = self.get_sheet_id
         _requests = []
         for i in cols:
             dim = {
@@ -165,7 +194,7 @@ class LaunchGS:
             width: int
     ):
         """Auto resize columns to fit text"""
-        sheet_id = self.get_sheet_id()
+        sheet_id = self.get_sheet_id
         _requests = []
         for i in [col]:
             dim = {

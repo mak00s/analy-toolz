@@ -406,6 +406,7 @@ class LaunchGA4:
                 index_col: str = None #'parameter_name'
         ):
             res = None
+            sort_values = []
             if me == 'metrics':
                 list_of_dict = self.get_metrics()
                 my_order = ["category", "display_name", "description", "api_name", "parameter_name", "scope", "unit", "expression"]
@@ -433,7 +434,6 @@ class LaunchGA4:
                             'description': r['description'],
                             'scope': r['scope'],
                         })
-
             elif me == 'custom_metrics':
                 index_col = 'api_name'
                 dict = self.get_metrics()
@@ -456,10 +456,10 @@ class LaunchGA4:
 
             if res:
                 if index_col:
-                    return pd.DataFrame(res).set_index(index_col)
+                    return pd.DataFrame(res).set_index(index_col).sort_values(by=sort_values)
                 else:
-                    return pd.DataFrame(res)
-            return pd.DataFrame().sort_values(by=sort_values)
+                    return pd.DataFrame(res).sort_values(by=sort_values)
+            return pd.DataFrame()
 
         def create_custom_dimension(
                 self,
@@ -749,6 +749,7 @@ class LaunchGA4:
             """Audit collected data for a dimension or a metric specified
             Args:
                 dimension (str): api_name or display_name of a dimension
+                metric (str): metric to use
             """
             df_e = self.run(
                 [dimension, 'date'],
@@ -757,10 +758,11 @@ class LaunchGA4:
                 end_date='yesterday'
             )
             if len(df_e) > 0:
-                return df_e.groupby(dimension).sum().merge(
+                df = df_e.groupby(dimension).sum().merge(
                     df_e.groupby(dimension).agg({'date': 'min'}), on=dimension, how='left').merge(
                     df_e.groupby(dimension).agg({'date': 'max'}), on=dimension, how='left',
                     suffixes=['_first', '_last']).sort_values(by=[metric], ascending=False)
+                return df
             else:
                 return pd.DataFrame()
 
@@ -944,6 +946,7 @@ class LaunchGA4:
             (data, headers, types) = self.run(dimensions, metrics)
 
             return headers, data
+
 
 def convert_ga4_type_to_bq_type(type):
     if type == 'string':
