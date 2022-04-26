@@ -42,6 +42,7 @@ class LaunchGS:
         try:
             self.workbook = self.client.open_by_url(url)
             print(f"「{self.workbook.title}」を開きました。")
+            return self.workbook
         except gspread.exceptions.APIError as e:
             ej = e.response.json()['error']
             if ej['status'] == 'PERMISSION_DENIED':
@@ -53,8 +54,6 @@ class LaunchGS:
         if sheet:
             self.select_sheet(sheet)
             return self.sheet
-        else:
-            return self.workbook
 
     def list_sheets(self):
         """Returns a list of sheet names"""
