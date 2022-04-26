@@ -135,7 +135,7 @@ class Megaton:
             else:
                 print("Please select a dataset first.")
 
-        def create(self, table_id: str, schema: bigquery.SchemaField, partitioning_field: str = '',
+        def create(self, table_id: str, schema: bigquery.SchemaField, description: str = '', partitioning_field: str = '',
                    clustering_fields: list = []):
             dataset_ref = self.parent.dataset.ref
             table_ref = dataset_ref.table(table_id)
@@ -148,6 +148,8 @@ class Megaton:
                 )
             if clustering_fields:
                 table.clustering_fields = clustering_fields
+            if description:
+                table.description = description
 
             # Make an API request.
             table = self.parent.client.create_table(table)
