@@ -41,7 +41,7 @@ class LaunchGS:
             self.authorize()
         self.workbook = self.client.open_by_url(url)
         try:
-            print(f"「{GS.workbook.title}」を開きました。")
+            print(f"「{self.workbook.title}」を開きました。")
         except gspread.exceptions.APIError as e:
             ej = e.response.json()['error']
             if ej['status'] == 'PERMISSION_DENIED':
