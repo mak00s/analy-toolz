@@ -32,19 +32,22 @@ from google.api_core.exceptions import PermissionDenied
 from google.api_core.exceptions import ServiceUnavailable
 from google.api_core.exceptions import Unauthenticated
 from google.oauth2.credentials import Credentials
+# from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
 from . import google_api, utils
 
 
 class LaunchGA4:
+    this = "Megaton GA4"
     required_scopes = [
         'https://www.googleapis.com/auth/analytics.edit',
         'https://www.googleapis.com/auth/analytics.readonly',
     ]
 
-    def __init__(self, credentials: Credentials):
+    def __init__(self, credentials: Credentials, **kwargs):
         """constructor"""
         self.credentials = credentials
+        self.credential_cache_file = kwargs.get('credential_cache_file')
         self.data_client = None
         self.admin_client = None
         self.accounts = None
@@ -62,22 +65,28 @@ class LaunchGA4:
         dict = self.admin_client.parse_property_path(path)
         return dict.get('property')
 
+    # retry(stop=stop_after_attempt(1), retry=retry_if_exception_type(ServiceUnavailable))
     def authorize(self):
-        if isinstance(self.credentials, Credentials):
-            print("Megaton GA4 launched!")
-            self.data_client = BetaAnalyticsDataClient(credentials=self.credentials)
-            self.admin_client = AnalyticsAdminServiceClient(credentials=self.credentials)
-            if not self.update():
-                return
-        else:
+        if not isinstance(self.credentials, Credentials):
             print("Error: The credentials given are in invalid format.")
+            self.credentials = None
             return
+
+        self.build_client()
+
+        if not self.update():
+            return
+
         if bool(set(self.credentials.scopes) & set(self.required_scopes)):
-            # print("scopes look good")
+            print(f"{self.this} launched!")
+            # print("given scopes look ok")
             return True
         else:
             print("Error: The given scopes don't meet requirements.")
-            return
+
+    def build_client(self):
+        self.data_client = BetaAnalyticsDataClient(credentials=self.credentials)
+        self.admin_client = AnalyticsAdminServiceClient(credentials=self.credentials)
 
     def update(self):
         """Returns account summaries accessible by the caller."""
@@ -98,7 +107,7 @@ class LaunchGA4:
             if m and m.group(1) == 'invalid_grant':
                 print(f"認証の期限が切れています。{m.group(2)}")
                 self.credentials = None
-                google_api.delete_credentials_cache()
+                # google_api.delete_credentials_cache()
             raise e
         except Unauthenticated as e:
             print("認証に失敗しました。")
@@ -192,17 +201,17 @@ class LaunchGA4:
                 if index_col:
                     return df.set_index(index_col)
 
-    class Property:
+    class Property(object):
         def __init__(self, parent):
             self.parent = parent
             self.id = None
             self.name = None
-            self.created_time = None
-            self.updated_time = None
             self.time_zone = None
             self.currency = None
             self.industry = None
             self.service_level = None
+            self.created_time = None
+            self.updated_time = None
             self.data_retention = None
             self.data_retention_reset_on_activity = None
             self.api_custom_dimensions = None
@@ -309,15 +318,6 @@ class LaunchGA4:
                 }
                 return dict
 
-        def select(self, id: str):
-            if id:
-                if id != self.id:
-                    self.id = id
-                    self.update()
-            else:
-                self.id = None
-                self.clear()
-
         def clear(self):
             self.name = None
             self.created_time = None
@@ -334,8 +334,17 @@ class LaunchGA4:
             self.dimensions = None
             self.metrics = None
 
+        def select(self, id: str):
+            if id:
+                if id != self.id:
+                    self.id = id
+                    self.update()
+            else:
+                self.id = None
+                self.clear()
+
         def update(self):
-            self.clear()
+            # self.clear()
             self.get_info()
             self.get_available()
 
@@ -345,15 +354,16 @@ class LaunchGA4:
             self.name = dict['name']
             self.created_time = dict['created_time']
             self.updated_time = dict['updated_time']
-            self.time_zone = dict['time_zone']
-            self.currency = dict['currency']
+            self.time_zone = dict.get('time_zone', '')
+            self.currency = dict.get('currency', '')
             self.industry = dict['industry']
             self.service_level = dict['service_level']
+            self.data_retention = dict.get('data_retention', '')
+            self.data_retention_reset_on_activity = dict.get('data_retention_reset_on_activity', '')
             if not self.data_retention:
                 dict2 = self._get_data_retention()
                 dict['data_retention'] = dict2['data_retention']
                 dict['data_retention_reset_on_activity'] = dict2['reset_user_data_on_new_activity']
-
             return dict
 
         def get_available(self):
@@ -403,7 +413,7 @@ class LaunchGA4:
         def show(
                 self,
                 me: str = 'info',
-                index_col: str = None #'parameter_name'
+                index_col: str = None
         ):
             res = None
             sort_values = []
@@ -493,7 +503,8 @@ class LaunchGA4:
             self.start_date = start_date
             self.end_date = end_date
 
-        def _get_api_name(self, before, which='dimensions', what='api_name'):
+        def _format_api_name(self, before, which='dimensions'):
+            what = 'api_name'
             dim = self.parent.property.api_metadata[which]
             for r in dim:
                 if r['display_name'] == before:
@@ -502,71 +513,6 @@ class LaunchGA4:
                     return r[what]
             print(f"{which[:-1]} {before} is not found.")
             return None
-
-        def _ga4_response_to_dict(self, response: RunReportResponse):
-            dim_len = len(response.dimension_headers)
-            metric_len = len(response.metric_headers)
-            all_data = []
-            for row in response.rows:
-                row_data = {}
-                for i in range(0, dim_len):
-                    row_data.update({response.dimension_headers[i].name: row.dimension_values[i].value})
-                for i in range(0, metric_len):
-                    row_data.update({response.metric_headers[i].name: row.metric_values[i].value})
-                all_data.append(row_data)
-            return all_data
-
-        def _convert_metric(self, value, type: str):
-            """Metric's Value types are
-                METRIC_TYPE_UNSPECIFIED = 0
-                TYPE_CURRENCY = 9
-                TYPE_FEET = 10
-                TYPE_FLOAT = 2
-                TYPE_HOURS = 7
-                TYPE_INTEGER = 1
-                TYPE_KILOMETERS = 13
-                TYPE_METERS = 12
-                TYPE_MILES = 11
-                TYPE_MILLISECONDS = 5
-                TYPE_MINUTES = 6
-                TYPE_SECONDS = 4
-                TYPE_STANDARD = 8
-            """
-            if type in ['TYPE_INTEGER', 'TYPE_HOURS','TYPE_MINUTES','TYPE_SECONDS','TYPE_MILLISECONDS']:
-                return int(value)
-            elif type in ['TYPE_FLOAT']:
-                return float(value)
-            else:
-                return value
-
-        def _parse_ga4_response(self, response: RunReportResponse):
-            names = []
-            dimension_types = []
-            metrics_types = []
-
-            for i in response.dimension_headers:
-                names.append(i.name)
-                dimension_types.append('category')
-
-            for i in response.metric_headers:
-                names.append(i.name)
-                metrics_types.append(MetricType(i.type_).name)
-
-            all_data = []
-            for row in response.rows:
-                row_data = []
-                for d in row.dimension_values:
-                    row_data.append(d.value)
-                for i in range(0, len(row.metric_values)):
-                    row_data.append(
-                        self._convert_metric(
-                            row.metric_values[i].value,
-                            metrics_types[i]
-                        )
-                    )
-                all_data.append(row_data)
-
-            return all_data, names, dimension_types + metrics_types
 
         def _format_filter(self, conditions, logic=None):
             if logic == 'AND':
@@ -607,22 +553,97 @@ class LaunchGA4:
                 )
             return
 
+        def _response_to_dict(self, response: RunReportResponse):
+            dim_len = len(response.dimension_headers)
+            metric_len = len(response.metric_headers)
+            all_data = []
+            for row in response.rows:
+                row_data = {}
+                for i in range(0, dim_len):
+                    row_data.update({response.dimension_headers[i].name: row.dimension_values[i].value})
+                for i in range(0, metric_len):
+                    row_data.update({response.metric_headers[i].name: row.metric_values[i].value})
+                all_data.append(row_data)
+            return all_data
+
+        def _convert_metric(self, value, type: str):
+            """Metric's Value types for GA4 are
+                    METRIC_TYPE_UNSPECIFIED = 0
+                    TYPE_CURRENCY = 9
+                    TYPE_FEET = 10
+                    TYPE_FLOAT = 2
+                    TYPE_HOURS = 7
+                    TYPE_INTEGER = 1
+                    TYPE_KILOMETERS = 13
+                    TYPE_METERS = 12
+                    TYPE_MILES = 11
+                    TYPE_MILLISECONDS = 5
+                    TYPE_MINUTES = 6
+                    TYPE_SECONDS = 4
+                    TYPE_STANDARD = 8
+                Metric's Value types for UA are
+                    METRIC_TYPE_UNSPECIFIED
+                    INTEGER
+                    FLOAT
+                    CURRENCY
+                    PERCENT
+                    TIME (in HH:MM:SS format)
+            """
+            type = type.replace('TYPE_', '')
+            if type in ['INTEGER', 'HOURS', 'MINUTES', 'SECONDS', 'MILLISECONDS']:
+                return int(value)
+            elif type in ['FLOAT']:
+                return float(value)
+            else:
+                return value
+
+        def _parse_response(self, response: dict):
+            all_data = []
+            names = []
+            dimension_types = []
+            metric_types = []
+
+            for i in response.dimension_headers:
+                names.append(i.name)
+                dimension_types.append('category')
+
+            for i in response.metric_headers:
+                names.append(i.name)
+                metric_types.append(MetricType(i.type_).name)
+
+            for row in response.rows:
+                row_data = []
+                for d in row.dimension_values:
+                    row_data.append(d.value)
+                for i, v in enumerate(row.metric_values):
+                    row_data.append(
+                        self._convert_metric(
+                            v.value,
+                            metric_types[i]
+                        )
+                    )
+                all_data.append(row_data)
+
+            return all_data, names, dimension_types + metric_types
+
         def _call_api(
                 self,
+                limit: int,
+                offset: int,
+                start_date,
+                end_date,
                 dimensions: list,
                 metrics: list,
-                start_date=None,
-                end_date=None,
                 dimension_filter=None,
                 metric_filter=None,
                 order_bys=None,
                 show_total: bool = False,
-                limit: int = 0,
-                offset: int = 0,
         ):
-            dimensions_ga4 = [Dimension(name=d) for d in dimensions]
+            dimension_api_names = [self._format_api_name(r) for r in dimensions]
+            metrics_api_names = [self._format_api_name(r, which='metrics') for r in metrics]
+            dimensions_ga4 = [Dimension(name=d) for d in dimension_api_names]
 
-            metrics_ga4 = [Metric(name=m) for m in metrics]
+            metrics_ga4 = [Metric(name=m) for m in metrics_api_names]
 
             date_ranges = [DateRange(start_date=start_date, end_date=end_date)]
 
@@ -646,14 +667,11 @@ class LaunchGA4:
                 offset=offset,
             )
 
-            data = []
-            headers = []
-            types = []
-            row_count = 0
+            total_rows = 0
             response = None
             try:
                 response = self.parent.data_client.run_report(request)
-                row_count = response.row_count
+                total_rows = response.row_count
             except PermissionDenied as e:
                 print("権限がありません。")
                 message = getattr(e, 'message', repr(e))
@@ -661,8 +679,8 @@ class LaunchGA4:
                 m = re.search(r'reason: "([^"]+)', str(ex_value))
                 if m:
                     reason = m.group(1)
-                if reason == 'SERVICE_DISABLED':
-                    print("GCPのプロジェクトでData APIを有効化してください。")
+                    if reason == 'SERVICE_DISABLED':
+                        print("GCPのプロジェクトでData APIを有効化してください。")
                 print(message)
             except Exception as e:
                 # print(e)
@@ -670,10 +688,9 @@ class LaunchGA4:
                 print(type_)
                 print(value)
 
-            if row_count > 0:
-                data, headers, types = self._parse_ga4_response(response)
+            data, headers, types = self._parse_response(response)
 
-            return data, row_count, headers, types
+            return data, total_rows, headers, types
 
         def run(
                 self,
@@ -686,39 +703,30 @@ class LaunchGA4:
                 order_bys=None,
                 show_total: bool = False,
                 limit: int = 10000,
-                to_pd: bool = True
+                to_pd: bool = True,
         ):
-            offset = 0
-            all_rows = []
-            headers = []
-            types = []
-            page = 1
-
-            dimension_api_names = [self._get_api_name(r) for r in dimensions]
-            metrics_api_names = [self._get_api_name(r, which='metrics') for r in metrics]
+            """Send request to get report data"""
             start_date = start_date if start_date else self.start_date
             end_date = end_date if end_date else self.end_date
             print(f"Building a report ({start_date} - {end_date})")
 
+            all_rows, offset, page = [], 0, 1
             while True:
-                (data, row_count, headers, types) = self._call_api(
-                    dimension_api_names,
-                    metrics_api_names,
-                    start_date=start_date,
-                    end_date=end_date,
+                (data, total_rows, headers, types) = self._call_api(
+                    limit, offset,
+                    start_date, end_date,
+                    dimensions, metrics,
                     dimension_filter=dimension_filter,
                     metric_filter=metric_filter,
                     order_bys=order_bys,
                     show_total=show_total,
-                    limit=limit,
-                    offset=offset
                 )
                 if len(data) > 0:
                     all_rows.extend(data)
                     if offset == 0:
-                        print(f"Total {row_count} rows found.")
-                    print(f" p{page}: retrieved #{offset + 1} - #{offset + len(data)}")
-                    if offset + len(data) == row_count:
+                        print(f"Total {total_rows} rows found.")
+                    print(f" p{page}: retrieved #{offset + 1} - {offset + len(data)}")
+                    if offset + len(data) == total_rows:
                         break
                     else:
                         page += 1
@@ -952,6 +960,8 @@ def convert_ga4_type_to_bq_type(type):
     if type == 'string':
         return 'STRING'
     elif type == 'int':
+        return 'INT64'
+    elif type == 'integer':
         return 'INT64'
     elif type == 'float':
         return 'FLOAT'

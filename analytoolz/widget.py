@@ -17,8 +17,9 @@ def dropdown_menu(label: str, default: str, option_list: List[Tuple[str, str]] =
     return Dropdown(description=f"{label}: ", options=options)
 
 
-def create_ga4_account_property_menu(accounts):
+def create_ga_account_property_menu(accounts):
     opt = [(d['name'], d['id']) for d in accounts]
     menu1 = dropdown_menu('Account', 'Please select', opt)
     menu2 = dropdown_menu('Property', '---')
-    return menu1, menu2
+    menu3 = dropdown_menu('View', '---')
+    return menu1, menu2, menu3
