@@ -24,7 +24,6 @@ class GoogleApi(object):
         self.api_version = version
         self.scopes = scopes
         self.credentials = kwargs.get('credentials')
-        # self.sub = kwargs.get('sub')
         self._service = None
         self.discovery_url = kwargs.get('discovery_url', DISCOVERY_URI)
         self.retries = kwargs.get('retries', 3)
@@ -36,7 +35,7 @@ class GoogleApi(object):
     def service(self):
         """get or create a api service"""
         if self._service is None:
-            print("Creating a service.")
+            print(f"Creating a service for {self.api} API")
             self._service = build(self.api,
                                   self.api_version,
                                   credentials=self.credentials,
@@ -60,10 +59,9 @@ class GoogleApi(object):
         retry a google api call and check for rate limits
         """
         try:
-            ret = service_method.execute(num_retries=retry_count)
+            return service_method.execute(num_retries=retry_count)
         except errors.HttpError as error:
             code = error.resp.get('code')
-
             reason = ''
             message = ''
             try:
@@ -77,7 +75,10 @@ class GoogleApi(object):
             if code == 403 and "rate limit exceeded" in message.lower():
                 self.log.info("rate limit reached, sleeping for %s seconds", 2 ** retry_count)
                 time.sleep(2 ** retry_count)
-                ret = self.retry(service_method, retry_count + 1)
+                return self.retry(service_method, retry_count + 1)
+            elif code == 403 and ("accessNotConfigured" in reason or 'disabled' in message):
+                self.log.error(message)
+                raise
             else:
                 self.log.warn("got http error {} ({}): {}".format(code, reason, message))
                 raise
@@ -86,7 +87,6 @@ class GoogleApi(object):
         except:  # noqa
             self.log.exception("Failed to execute api method")
             raise
-        return ret
 
     def __getattr__(self, name):
         """ get attribute or service wrapper
@@ -193,24 +193,24 @@ def _run_auth_flow(client_secret_file: Optional[str], scopes: List[str], config:
     return flow.credentials
 
 
-def get_credentials(json_file: Optional[str], scopes: List[str], cache_file: str = ''):
+def get_credentials(json_file: Optional[str], scopes: List[str], cache_file: str = '', reset_cache=False):
     """Get Credentials
     """
+
+    # service account
     if _is_service_account_json(json_file):
-        # service account
-        credentials = service_account.Credentials.from_service_account_file(json_file)
-    else:
-        # oauth2
-        if not cache_file:
-            cache_file = get_cache_filename_from_json(json_file)
+        return service_account.Credentials.from_service_account_file(json_file)
+
+    # oauth2
+    cache_file = cache_file if cache_file else get_cache_filename_from_json(json_file)
+    if not reset_cache:
         credentials = load_credentials_from_cache(cache_file, scopes)
         if credentials:
             return credentials
-        else:
-            # no cache found, so run auth flow
-            credentials = _run_auth_flow(json_file, scopes)
-            # save cache
-            return save_credentials_to_cache(cache_file, credentials)
+    # no cache found, so run auth flow
+    credentials = _run_auth_flow(json_file, scopes)
+    # save cache
+    return save_credentials_to_cache(cache_file, credentials)
 
 
 def get_cache_filename_from_json(source_file: str):
