@@ -18,7 +18,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 class GoogleApi(object):
     """Google API helper object"""
 
-    def __init__(self, api="oauth2", version="v2", scopes=['https://www.googleapis.com/auth/analytics.readonly'], *args, **kwargs):
+    def __init__(self, api="oauth2", version="v2", scopes=['https://www.googleapis.com/auth/analytics.readonly'], *args,
+                 **kwargs):
         """constructor"""
         self.api = api
         self.api_version = version
@@ -35,7 +36,7 @@ class GoogleApi(object):
     def service(self):
         """get or create a api service"""
         if self._service is None:
-            print(f"Creating a service for {self.api} API")
+            # print(f"Creating a service for {self.api} API")
             self._service = build(self.api,
                                   self.api_version,
                                   credentials=self.credentials,

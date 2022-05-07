@@ -4,6 +4,7 @@ Functions for Google Analytics 4 API
 
 from collections import OrderedDict
 from datetime import datetime
+from typing import Optional
 import pandas as pd
 import pytz
 import re
@@ -65,30 +66,7 @@ class LaunchGA4:
         dict = self.admin_client.parse_property_path(path)
         return dict.get('property')
 
-    # retry(stop=stop_after_attempt(1), retry=retry_if_exception_type(ServiceUnavailable))
-    def authorize(self):
-        if not isinstance(self.credentials, Credentials):
-            print("Error: The credentials given are in invalid format.")
-            self.credentials = None
-            return
-
-        self.build_client()
-
-        if not self.update():
-            return
-
-        if bool(set(self.credentials.scopes) & set(self.required_scopes)):
-            print(f"{self.this} launched!")
-            # print("given scopes look ok")
-            return True
-        else:
-            print("Error: The given scopes don't meet requirements.")
-
-    def build_client(self):
-        self.data_client = BetaAnalyticsDataClient(credentials=self.credentials)
-        self.admin_client = AnalyticsAdminServiceClient(credentials=self.credentials)
-
-    def update(self):
+    def _update(self):
         """Returns account summaries accessible by the caller."""
         try:
             results_iterator = self.admin_client.list_account_summaries()
@@ -114,8 +92,7 @@ class LaunchGA4:
             self.credentials = None
             print(sys.exc_info()[1])
         except Exception as e:
-            type, value, traceback = sys.exc_info()
-            # print(type)
+            type, value, _ = sys.exc_info()
             print(value)
             raise e
         else:
@@ -136,21 +113,36 @@ class LaunchGA4:
             self.accounts = results
             return results
 
+    # retry(stop=stop_after_attempt(1), retry=retry_if_exception_type(ServiceUnavailable))
+    def authorize(self):
+        if not isinstance(self.credentials, Credentials):
+            print("Error: The credentials given are in invalid format.")
+            self.credentials = None
+            return
+
+        self.build_client()
+
+        if not self._update():
+            return
+
+        if bool(set(self.credentials.scopes) & set(self.required_scopes)):
+            print(f"{self.this} launched!")
+            # print("given scopes look ok")
+            return True
+        else:
+            print("Error: The given scopes don't meet requirements.")
+
+    def build_client(self):
+        self.data_client = BetaAnalyticsDataClient(credentials=self.credentials)
+        self.admin_client = AnalyticsAdminServiceClient(credentials=self.credentials)
+
     class Account:
         def __init__(self, parent):
             self.parent = parent
             self.id = None
             self.properties = None
 
-        def select(self, id: str):
-            if id:
-                if id != self.id:
-                    self.id = id
-                    self.update()
-            else:
-                self.parent.property.id = None
-
-        def update(self):
+        def _update(self):
             """Update summaries of all properties for the account"""
             try:
                 results_iterator = self.parent.admin_client.list_properties({
@@ -190,11 +182,15 @@ class LaunchGA4:
                 self.properties = results
                 return results
 
-        def show(
-                self,
-                # me: str = 'properties',
-                index_col: str = 'id'
-        ):
+        def select(self, id: str):
+            if id:
+                if id != self.id:
+                    self.id = id
+                    self._update()
+            else:
+                self.parent.property.id = None
+
+        def show(self, index_col: str = 'id'):
             res = self.properties
             if res:
                 df = pd.DataFrame(res)
@@ -212,6 +208,22 @@ class LaunchGA4:
             self.service_level = None
             self.created_time = None
             self.updated_time = None
+            self.data_retention = None
+            self.data_retention_reset_on_activity = None
+            self.api_custom_dimensions = None
+            self.api_custom_metrics = None
+            self.api_metadata = None
+            self.dimensions = None
+            self.metrics = None
+
+        def _clear(self):
+            self.name = None
+            self.created_time = None
+            self.updated_time = None
+            self.time_zone = None
+            self.currency = None
+            self.industry = None
+            self.service_level = None
             self.data_retention = None
             self.data_retention_reset_on_activity = None
             self.api_custom_dimensions = None
@@ -241,24 +253,24 @@ class LaunchGA4:
                 dimensions = []
                 for i in response.dimensions:
                     dimensions.append({
-                        'customized':   i.custom_definition,
-                        'category':     i.category,
-                        'api_name':     i.api_name,
+                        'customized': i.custom_definition,
+                        'category': i.category,
+                        'api_name': i.api_name,
                         'display_name': i.ui_name,
-                        'description':  i.description,
+                        'description': i.description,
                         # 'deprecated_api_names': i.deprecated_api_names,
                     })
                 metrics = []
                 for i in response.metrics:
                     metrics.append({
-                        'customized':   i.custom_definition,
-                        'category':     i.category,
-                        'api_name':     i.api_name,
+                        'customized': i.custom_definition,
+                        'category': i.category,
+                        'api_name': i.api_name,
                         'display_name': i.ui_name,
-                        'description':  i.description,
+                        'description': i.description,
                         # 'deprecated_api_names': i.deprecated_api_names,
-                        'type':         i.type_,
-                        'expression':   i.expression,
+                        'type': i.type_,
+                        'expression': i.expression,
                     })
                 return {'dimensions': dimensions, 'metrics': metrics}
 
@@ -318,35 +330,19 @@ class LaunchGA4:
                 }
                 return dict
 
-        def clear(self):
-            self.name = None
-            self.created_time = None
-            self.updated_time = None
-            self.time_zone = None
-            self.currency = None
-            self.industry = None
-            self.service_level = None
-            self.data_retention = None
-            self.data_retention_reset_on_activity = None
-            self.api_custom_dimensions = None
-            self.api_custom_metrics = None
-            self.api_metadata = None
-            self.dimensions = None
-            self.metrics = None
+        def _update(self):
+            # self.clear()
+            self.get_info()
+            self.get_available()
 
         def select(self, id: str):
             if id:
                 if id != self.id:
                     self.id = id
-                    self.update()
+                    self._update()
             else:
                 self.id = None
-                self.clear()
-
-        def update(self):
-            # self.clear()
-            self.get_info()
-            self.get_available()
+                self._clear()
 
         def get_info(self):
             """Get property data from parent account"""
@@ -410,16 +406,13 @@ class LaunchGA4:
             self.metrics = new
             return self.metrics
 
-        def show(
-                self,
-                me: str = 'info',
-                index_col: str = None
-        ):
+        def show(self, me: str = 'info', index_col: Optional[str] = None):
             res = None
             sort_values = []
             if me == 'metrics':
                 list_of_dict = self.get_metrics()
-                my_order = ["category", "display_name", "description", "api_name", "parameter_name", "scope", "unit", "expression"]
+                my_order = ["category", "display_name", "description", "api_name", "parameter_name", "scope", "unit",
+                            "expression"]
                 res = []
                 for d in list_of_dict:
                     res.append(OrderedDict((k, d[k]) for k in my_order if k in d.keys()))
@@ -503,7 +496,7 @@ class LaunchGA4:
             self.start_date = start_date
             self.end_date = end_date
 
-        def _format_api_name(self, before, which='dimensions'):
+        def _format_api_name(self, before: str, which: str = 'dimensions'):
             what = 'api_name'
             dim = self.parent.property.api_metadata[which]
             for r in dim:
@@ -753,6 +746,7 @@ class LaunchGA4:
         """
         reports
         """
+
         def audit(self, dimension: str = 'eventName', metric: str = 'eventCount'):
             """Audit collected data for a dimension or a metric specified
             Args:
@@ -774,7 +768,7 @@ class LaunchGA4:
             else:
                 return pd.DataFrame()
 
-        def audit_dimensions(self, only: list = [], ignore: list = []):
+        def audit_dimensions(self, only: list = None, ignore: list = []):
             """ディメンションの計測アイテム毎の回数・記録された最初と最後の日
             """
             if not only:
@@ -789,7 +783,7 @@ class LaunchGA4:
             print("...done")
             return dict
 
-        def audit_metrics(self, only: list = [], ignore: list = []):
+        def audit_metrics(self, only: list = None, ignore: list = []):
             if not only:
                 only = [d['api_name'] for d in self.parent.property.metrics if 'scope' in d]
 

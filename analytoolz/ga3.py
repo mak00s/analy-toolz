@@ -2,6 +2,7 @@
 Functions for Google Analytics 3 (Universal Analytics) API
 """
 
+from typing import Optional
 import pandas as pd
 import re
 import sys
@@ -33,7 +34,7 @@ class Megaton(ga4.LaunchGA4):
             credentials=self.credentials,
             credential_cache_file=self.credential_cache_file)
 
-    def update(self):
+    def _update(self):
         """Returns account summaries accessible by the caller."""
         try:
             response = self.admin_client.management().accountSummaries().list().execute()
@@ -41,7 +42,7 @@ class Megaton(ga4.LaunchGA4):
             print("GCPのプロジェクトでGoogle Analytics APIを有効化してください。")
             return
         except Exception as e:
-            type, value, traceback = sys.exc_info()
+            type, value, _ = sys.exc_info()
             print(f"type = {type}")
             print(f"value = {value}")
             raise e
@@ -64,7 +65,7 @@ class Megaton(ga4.LaunchGA4):
             return results
 
     class Account(ga4.LaunchGA4.Account):
-        def update(self):
+        def _update(self):
             response = self.parent.admin_client.management().webproperties().list(
                 accountId=self.id).execute()
             results = []
@@ -137,12 +138,12 @@ class Megaton(ga4.LaunchGA4):
                 self.api_custom_metrics = self._get_custom_metrics()
             return self.api_custom_metrics
 
-        def clear(self):
-            super().clear()
+        def _clear(self):
+            super()._clear()
             self.views = None
 
-        def update(self):
-            self.clear()
+        def _update(self):
+            self._clear()
             self.get_info()
             # self.get_available()
 
@@ -172,11 +173,7 @@ class Megaton(ga4.LaunchGA4):
             self.views = results
             return results
 
-        def show(
-                self,
-                me: str = 'info',
-                index_col: str = None
-        ):
+        def show(self, me: str = 'info', index_col: Optional[str] = None):
             res = None
             sort_values = []
             if me == 'custom_dimensions':
@@ -251,11 +248,7 @@ class Megaton(ga4.LaunchGA4):
             self.updated_time = i['updated_time']
             return i
 
-        def show(
-                self,
-                me: str = 'info',
-                index_col: str = None
-        ):
+        def show(self, me: str = 'info', index_col: Optional[str] = None):
             res = None
             sort_values = []
             if me == 'info':
@@ -271,16 +264,19 @@ class Megaton(ga4.LaunchGA4):
 
     class Report(ga4.LaunchGA4.Report):
 
-        def _format_api_name(self, before, which='dimension'):
-            if which == 'dimension':
-                return {'name': f"ga:{before}"}
+        def _format_api_name(self, before: str, as_: str = None):
+            after = ("ga:" + before) if not before.startswith("ga:") else before
+            if as_ == 'dimension':
+                return {'name': after}
+            elif as_ == 'metric':
+                return {'expression': after, 'alias': before}
             else:
-                return {'expression': f"ga:{before}", 'alias': before}
+                return after
 
         def _parse_filter(self, before: str):
             m = re.search(r'^(.+)(==|!=|=@|!@|=~|!~|>|<)(.+)$', before)
             if m:
-                field = m.groups()[0]
+                field = self._format_api_name(m.groups()[0])
                 value = m.groups()[2]
                 op = m.groups()[1]
                 is_not = True if op.startswith('!') else False
@@ -316,35 +312,40 @@ class Megaton(ga4.LaunchGA4):
                 return []
             clause = {'operator': 'AND', 'filters': []}
             for i in before.split(';'):
-                is_not, operator, field, value = self._parse_filter(i)
-                filter = {
-                    'metricName': field,
-                    'not': is_not,
-                    'operator': operator,
-                    'comparisonValue': value
-                }
-                clause['filters'].append(filter)
+                try:
+                    is_not, operator, field, value = self._parse_filter(i)
+                    filter = {
+                        'metricName': field,
+                        'not': is_not,
+                        'operator': operator,
+                        'comparisonValue': value
+                    }
+                    clause['filters'].append(filter)
+                except TypeError:
+                    print("metric filter is invalid. ignoring...")
             return [clause]
 
         def _format_order_bys(self, before: str):
+            if not before:
+                return
             result = []
             for i in before.split(','):
                 obj = {}
                 try:
                     _, field = i.split('-')
                 except ValueError:
-                    obj['fieldName'] = i
+                    obj['fieldName'] = self._format_api_name(i)
                     obj['sortOrder'] = 'ASCENDING'
                 else:
-                    obj['fieldName'] = field
+                    obj['fieldName'] = self._format_api_name(field)
                     obj['sortOrder'] = 'DESCENDING'
                 result.append(obj)
             return result
 
         def _format_report_request(self, **kwargs):
             """Construct a request for API"""
-            dimension_api_names = [self._format_api_name(r) for r in kwargs.get('dimensions')]
-            metrics_api_names = [self._format_api_name(r, which='metrics') for r in kwargs.get('metrics')]
+            dimension_api_names = [self._format_api_name(r, as_='dimension') for r in kwargs.get('dimensions')]
+            metrics_api_names = [self._format_api_name(r, as_='metric') for r in kwargs.get('metrics')]
             return {
                 'viewId': self.parent.view.id,
                 'dateRanges': [{
@@ -357,11 +358,37 @@ class Megaton(ga4.LaunchGA4):
                 'metrics': metrics_api_names,
                 'metricFilterClauses': self._format_metric_filter(kwargs.get('metric_filter')),
                 'orderBys': self._format_order_bys(kwargs.get('order_bys')),
+                'segments': kwargs.get('segments'),
                 'pageSize': kwargs.get('limit'),
                 'includeEmptyRows': True,
                 'hideTotals': not kwargs.get('show_total', False),
                 'hideValueRanges': True,
             }
+
+        def _parse_response(self, report: dict):
+            all_data = []
+            names = []
+            dimension_types = []
+            metric_types = []
+
+            for i in report['columnHeader']['dimensions']:
+                names.append(i.replace('ga:', ''))
+                dimension_types.append('category')
+
+            for i in report['columnHeader']['metricHeader']['metricHeaderEntries']:
+                names.append(i['name'])
+                metric_types.append(i['type'])
+
+            for row in report['data']['rows']:
+                row_data = []
+                for d in row['dimensions']:
+                    row_data.append(d)
+                for d in row['metrics']:
+                    for i, v in enumerate(d['values']):
+                        row_data.append(self._convert_metric(v, metric_types[i]))
+                all_data.append(row_data)
+
+            return all_data, names, dimension_types + metric_types
 
         def _call_report_api(self, limit: int, offset: int, request: dict):
 
@@ -392,59 +419,11 @@ class Megaton(ga4.LaunchGA4):
 
             return data, total_rows, headers, types, next_token
 
-        def _parse_response(self, report: dict):
-            all_data = []
-            names = []
-            dimension_types = []
-            metric_types = []
-
-            for i in report['columnHeader']['dimensions']:
-                names.append(i.replace('ga:', ''))
-                dimension_types.append('category')
-
-            for i in report['columnHeader']['metricHeader']['metricHeaderEntries']:
-                names.append(i['name'])
-                metric_types.append(i['type'])
-
-            for row in report['data']['rows']:
-                row_data = []
-                for d in row['dimensions']:
-                    row_data.append(d)
-                for d in row['metrics']:
-                    for i, v in enumerate(d['values']):
-                        row_data.append(self._convert_metric(v, metric_types[i]))
-                all_data.append(row_data)
-
-            return all_data, names, dimension_types + metric_types
-
-        def _generator(
-                self,
-                dimensions: list,
-                metrics: list,
-                start_date: str,
-                end_date: str,
-                dimension_filter=None,
-                metric_filter=None,
-                order=None,
-                show_total: bool = False,
-                limit: int = 10000,
-        ):
+        def _generator(self, request: dict, limit: int = 10000):
             """Send request to get report data"""
             if not self.parent.view.id:
                 # print("Viewを先に選択してから実行してください。")
                 return
-
-            request = self._format_report_request(
-                start_date=start_date,
-                end_date=end_date,
-                dimensions=dimensions,
-                metrics=metrics,
-                dimension_filter=dimension_filter,
-                metric_filter=metric_filter,
-                order_bys=order,
-                show_total=show_total,
-            )
-            # print(request)
 
             offset = 0
             while True:
@@ -467,7 +446,7 @@ class Megaton(ga4.LaunchGA4):
                     self.types = types
 
                 if len(data):
-                    print(f"(retrieved row #{offset}-{int(offset) + len(data) - 1})")
+                    print(f"(receiving row #{offset}-{int(offset) + len(data) - 1})")
 
                 for row in data:
                     yield row
@@ -480,11 +459,12 @@ class Megaton(ga4.LaunchGA4):
                 self,
                 dimensions: list,
                 metrics: list,
-                start_date=None,
-                end_date=None,
-                dimension_filter=None,
-                metric_filter=None,
-                order=None,
+                start_date: Optional[str] = None,
+                end_date: Optional[str] = None,
+                dimension_filter: Optional[str] = None,
+                metric_filter: Optional[str] = None,
+                order: Optional[str] = None,
+                segments: Optional[list] = None,
                 show_total: bool = False,
                 limit: int = 10000,
                 to_pd: bool = True,
@@ -498,14 +478,21 @@ class Megaton(ga4.LaunchGA4):
             end_date = end_date if end_date else self.end_date
             print(f"Requesting a report ({start_date} - {end_date})")
 
-            gen = self._generator(
-                dimensions=dimensions,
-                metrics=metrics,
+            request = self._format_report_request(
                 start_date=start_date,
                 end_date=end_date,
+                dimensions=dimensions,
+                metrics=metrics,
                 dimension_filter=dimension_filter,
                 metric_filter=metric_filter,
-                order=order,
+                order_bys=order,
+                segments=segments,
+                show_total=show_total,
+            )
+            # print(request)
+
+            gen = self._generator(
+                request=request,
                 limit=limit
             )
 
