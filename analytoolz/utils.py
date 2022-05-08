@@ -5,11 +5,33 @@ Common Functions
 import pandas as pd
 
 
-def change_column_type(df: pd.DataFrame, date_columns=['date', 'firstSessionDate']):
+def change_column_type(df: pd.DataFrame, to_date=None, to_datetime=None):
+    """Change column type in dataframe from str to date or datetime"""
+    if not to_date:
+        to_date = ['date', 'firstSessionDate']
+    if not to_datetime:
+        to_datetime = ['dateHour', 'dateHourMinute']
+
     for col in df.columns:
-        if col in date_columns:
+        if col in to_date:
             df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce').dt.date
-        if col in ['dateHour', 'dateHourMinute']:
+        if col in to_datetime:
             df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
 
     return df
+
+
+def get_chunked_list(original_list: list, chunk_size: int = 100):
+    """Split a list into chunks"""
+    chunked_list = []
+    for i in range(0, len(original_list), chunk_size):
+        chunked_list.append(original_list[i:i + chunk_size])
+    return chunked_list
+
+
+def get_date_range(start_date: str, end_date: str, format: str = None):
+    """Convert date range to a list of each date in the range"""
+    date_range = pd.date_range(start_date, end_date)
+    if not format:
+        format = '%Y-%m-%d'
+    return [d.strftime(format) for d in date_range]

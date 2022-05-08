@@ -10,7 +10,7 @@ import sys
 from googleapiclient import errors
 from google.oauth2.credentials import Credentials
 
-from . import constants, ga4, google_api, utils
+from . import constants, exceptions, ga4, google_api, utils
 
 
 class Megaton(ga4.LaunchGA4):
@@ -264,7 +264,7 @@ class Megaton(ga4.LaunchGA4):
 
     class Report(ga4.LaunchGA4.Report):
 
-        def _format_api_name(self, before: str, as_: str = None):
+        def _format_name(self, before: str, as_: str = None):
             after = ("ga:" + before) if not before.startswith("ga:") else before
             if as_ == 'dimension':
                 return {'name': after}
@@ -276,7 +276,7 @@ class Megaton(ga4.LaunchGA4):
         def _parse_filter(self, before: str):
             m = re.search(r'^(.+)(==|!=|=@|!@|=~|!~|>|<)(.+)$', before)
             if m:
-                field = self._format_api_name(m.groups()[0])
+                field = self._format_name(m.groups()[0])
                 value = m.groups()[2]
                 op = m.groups()[1]
                 is_not = True if op.startswith('!') else False
@@ -334,18 +334,18 @@ class Megaton(ga4.LaunchGA4):
                 try:
                     _, field = i.split('-')
                 except ValueError:
-                    obj['fieldName'] = self._format_api_name(i)
+                    obj['fieldName'] = self._format_name(i)
                     obj['sortOrder'] = 'ASCENDING'
                 else:
-                    obj['fieldName'] = self._format_api_name(field)
+                    obj['fieldName'] = self._format_name(field)
                     obj['sortOrder'] = 'DESCENDING'
                 result.append(obj)
             return result
 
-        def _format_report_request(self, **kwargs):
+        def _format_request(self, **kwargs):
             """Construct a request for API"""
-            dimension_api_names = [self._format_api_name(r, as_='dimension') for r in kwargs.get('dimensions')]
-            metrics_api_names = [self._format_api_name(r, as_='metric') for r in kwargs.get('metrics')]
+            dimension_api_names = [self._format_name(r, as_='dimension') for r in kwargs.get('dimensions')]
+            metrics_api_names = [self._format_name(r, as_='metric') for r in kwargs.get('metrics')]
             return {
                 'viewId': self.parent.view.id,
                 'dateRanges': [{
@@ -359,10 +359,10 @@ class Megaton(ga4.LaunchGA4):
                 'metricFilterClauses': self._format_metric_filter(kwargs.get('metric_filter')),
                 'orderBys': self._format_order_bys(kwargs.get('order_bys')),
                 'segments': kwargs.get('segments'),
-                'pageSize': kwargs.get('limit'),
-                'includeEmptyRows': True,
+                'includeEmptyRows': False,
                 'hideTotals': not kwargs.get('show_total', False),
                 'hideValueRanges': True,
+                'pageSize': kwargs.get('limit'),
             }
 
         def _parse_response(self, report: dict):
@@ -379,7 +379,7 @@ class Megaton(ga4.LaunchGA4):
                 names.append(i['name'])
                 metric_types.append(i['type'])
 
-            for row in report['data']['rows']:
+            for row in report['data'].get('rows', []):
                 row_data = []
                 for d in row['dimensions']:
                     row_data.append(d)
@@ -390,11 +390,11 @@ class Megaton(ga4.LaunchGA4):
 
             return all_data, names, dimension_types + metric_types
 
-        def _call_report_api(self, limit: int, offset: int, request: dict):
+        def _request_report_api(self, limit: int, token: str, request: dict):
 
             request["pageSize"] = limit
-            if offset:
-                request["pageToken"] = offset
+            if token:
+                request["pageToken"] = token
 
             response = self.parent.data_client.reports().batchGet(
                 body={
@@ -415,20 +415,24 @@ class Megaton(ga4.LaunchGA4):
             if samples_size:
                 print(f"samplingSpaceSizes = {samples_size}")
 
+            # try:
             data, headers, types = self._parse_response(report_data)
+            # except:
+            #     print(report_data)
+            #     raise
 
             return data, total_rows, headers, types, next_token
 
-        def _generator(self, request: dict, limit: int = 10000):
+        def _report_generator(self, request: dict, limit: int = 10000):
             """Send request to get report data"""
             if not self.parent.view.id:
                 # print("Viewを先に選択してから実行してください。")
                 return
 
-            offset = 0
+            token = "0"
             while True:
                 try:
-                    (data, total_rows, headers, types, next_token) = self._call_report_api(limit, offset, request)
+                    (data, total_rows, headers, types, next_token) = self._request_report_api(limit, token, request)
                 except errors.HttpError as e:
                     value = str(sys.exc_info()[1])
                     if 'disabled' in value:
@@ -440,137 +444,75 @@ class Megaton(ga4.LaunchGA4):
                     else:
                         raise e
 
-                if offset == 0 and total_rows:
-                    print(f"Total {total_rows} rows returned.")
+                if token == "0" and total_rows:
+                    print(f"Total {total_rows} rows found.")
+
+                    if total_rows == 10001:
+                        if [d for d in request['dimensions'] if d['name'] == 'ga:clientId']:
+                            # print("!! The returned data might be restricted.")
+                            print("clientId is not officially supported by Google. Using this dimension in an "
+                                  "Analytics report may thus result in unexpected & unexplainable behavior (such as "
+                                  "restricting the report to exactly 10,000 or 10,001 rows).")
                     self.headers = headers
                     self.types = types
 
                 if len(data):
-                    print(f"(receiving row #{offset}-{int(offset) + len(data) - 1})")
+                    print(f"(received row #{token}-{int(token) + len(data) - 1})")
 
                 for row in data:
                     yield row
 
                 if not next_token:
+                    # no more data
                     break
-                offset = next_token
+                if len(data) == 0:
+                    # API bug
+                    raise exceptions.PartialDataReturned()
 
-        def show(
-                self,
-                dimensions: list,
-                metrics: list,
-                start_date: Optional[str] = None,
-                end_date: Optional[str] = None,
-                dimension_filter: Optional[str] = None,
-                metric_filter: Optional[str] = None,
-                order: Optional[str] = None,
-                segments: Optional[list] = None,
-                show_total: bool = False,
-                limit: int = 10000,
-                to_pd: bool = True,
-        ):
-            """Send request to get report data"""
+                token = next_token
+
+        def show(self, dimensions: list, metrics: list, return_generator: Optional[bool] = None, **kwargs):
+            """Get Analytics report data"""
             if not self.parent.view.id:
                 print("Viewを先に選択してから実行してください。")
                 return
-
-            start_date = start_date if start_date else self.start_date
-            end_date = end_date if end_date else self.end_date
+            start_date = kwargs.get('start_date', self.start_date)
+            end_date = kwargs.get('end_date', self.end_date)
             print(f"Requesting a report ({start_date} - {end_date})")
 
-            request = self._format_report_request(
-                start_date=start_date,
-                end_date=end_date,
+            request = self._format_request(
                 dimensions=dimensions,
                 metrics=metrics,
-                dimension_filter=dimension_filter,
-                metric_filter=metric_filter,
-                order_bys=order,
-                segments=segments,
-                show_total=show_total,
+                start_date=start_date,
+                end_date=end_date,
+                dimension_filter=kwargs.get('dimension_filter'),
+                metric_filter=kwargs.get('metric_filter'),
+                order_bys=kwargs.get('order'),
+                segments=kwargs.get('segments'),
+                show_total=False,
+                limit=kwargs.get('limit'),
             )
             # print(request)
 
-            gen = self._generator(
-                request=request,
-                limit=limit
-            )
+            iterator = self._report_generator(request, kwargs.get('limit', 10000))
 
-            if to_pd:
-                df = pd.DataFrame(list(gen), columns=self.headers)
-                return df
-            else:
-                return list(gen)
+            if return_generator:
+                return iterator
 
-        def _old_run(
-                self,
-                dimensions: list,
-                metrics: list,
-                start_date=None,
-                end_date=None,
-                dimension_filter=None,
-                metric_filter=None,
-                order=None,
-                show_total: bool = False,
-                limit: int = 10000,
-                to_pd: bool = False,
-        ):
-            """Send request to get report data"""
-            if not self.parent.view.id:
-                print("Viewを先に選択してから実行してください。")
-                return
-
-            start_date = start_date if start_date else self.start_date
-            end_date = end_date if end_date else self.end_date
-            print(f"Requesting a report ({start_date} - {end_date})")
-
-            request = self._format_report_request(
-                start_date=start_date,
-                end_date=end_date,
-                dimensions=dimensions,
-                metrics=metrics,
-                dimension_filter=dimension_filter,
-                metric_filter=metric_filter,
-                order_bys=order,
-                show_total=show_total,
-            )
-            print(request)
-
-            # all_rows = []
-            offset = 0
-            while True:
-                try:
-                    (data, total_rows, headers, types, next_token) = self._call_report_api(limit, offset, request)
-                except errors.HttpError as e:
-                    value = str(sys.exc_info()[1])
-                    if 'disabled' in value:
-                        print("\nGCPのプロジェクトでAnalytics Reporting APIを有効化してください。")
-                        return
-                    elif 'Invalid value' in value:
-                        print("レポート抽出条件の書式や内容を見直してください。")
-                        return
-                    else:
-                        raise e
-
-                if offset == 0 and total_rows:
-                    print(f"Total {total_rows} rows returned.")
-                    self.headers = headers
-                    self.types = types
-
-                if len(data):
-                    print(f"(retrieved row #{offset}-{int(offset) + len(data) - 1})")
-                    # all_rows.extend(data)
-
-                for row in data:
-                    yield row
-
-                if not next_token:
-                    break
-                offset = next_token
-
-            # if to_pd:
-            #     df = pd.DataFrame(all_rows, columns=headers)
-            #     df.columns = dimensions + metrics
-            #     return df
-            # else:
-            #     return all_rows, headers, types
+            try:
+                return pd.DataFrame(list(iterator), columns=self.headers)
+            except exceptions.PartialDataReturned:
+                print("APIのバグにより全データを取得できませんでした。")
+                if start_date != end_date:
+                    print("1日毎にデータを分割して取得してみます。")
+                    all_data = []
+                    for date in utils.get_date_range(start_date, end_date):
+                        print(f"...{date}: ", end='')
+                        request['dateRanges'][0]['startDate'] = date
+                        request['dateRanges'][0]['endDate'] = date
+                        request['pageToken'] = "0"
+                        iterator = self._report_generator(request, kwargs.get('limit', 10000))
+                        data = list(iterator)
+                        print(f"{len(data)} rows")
+                        all_data.extend(data)
+                    return pd.DataFrame(all_data, columns=self.headers)

@@ -496,7 +496,7 @@ class LaunchGA4:
             self.start_date = start_date
             self.end_date = end_date
 
-        def _format_api_name(self, before: str, which: str = 'dimensions'):
+        def _format_name(self, before: str, which: str = 'dimensions'):
             what = 'api_name'
             dim = self.parent.property.api_metadata[which]
             for r in dim:
@@ -546,18 +546,18 @@ class LaunchGA4:
                 )
             return
 
-        def _response_to_dict(self, response: RunReportResponse):
-            dim_len = len(response.dimension_headers)
-            metric_len = len(response.metric_headers)
-            all_data = []
-            for row in response.rows:
-                row_data = {}
-                for i in range(0, dim_len):
-                    row_data.update({response.dimension_headers[i].name: row.dimension_values[i].value})
-                for i in range(0, metric_len):
-                    row_data.update({response.metric_headers[i].name: row.metric_values[i].value})
-                all_data.append(row_data)
-            return all_data
+        # def _response_to_dict(self, response: RunReportResponse):
+        #     dim_len = len(response.dimension_headers)
+        #     metric_len = len(response.metric_headers)
+        #     all_data = []
+        #     for row in response.rows:
+        #         row_data = {}
+        #         for i in range(0, dim_len):
+        #             row_data.update({response.dimension_headers[i].name: row.dimension_values[i].value})
+        #         for i in range(0, metric_len):
+        #             row_data.update({response.metric_headers[i].name: row.metric_values[i].value})
+        #         all_data.append(row_data)
+        #     return all_data
 
         def _convert_metric(self, value, type: str):
             """Metric's Value types for GA4 are
@@ -632,8 +632,8 @@ class LaunchGA4:
                 order_bys=None,
                 show_total: bool = False,
         ):
-            dimension_api_names = [self._format_api_name(r) for r in dimensions]
-            metrics_api_names = [self._format_api_name(r, which='metrics') for r in metrics]
+            dimension_api_names = [self._format_name(r) for r in dimensions]
+            metrics_api_names = [self._format_name(r, which='metrics') for r in metrics]
             dimensions_ga4 = [Dimension(name=d) for d in dimension_api_names]
 
             metrics_ga4 = [Metric(name=m) for m in metrics_api_names]
