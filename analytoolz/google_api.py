@@ -83,6 +83,9 @@ class GoogleApi(object):
             else:
                 self.log.warn("got http error {} ({}): {}".format(code, reason, message))
                 raise
+        except BrokenPipeError:
+            self.log.info("BrokenPipeError occurred but attempting to retry")
+            return self.retry(service_method, retry_count + 1)
         except KeyboardInterrupt:
             raise
         except:  # noqa
