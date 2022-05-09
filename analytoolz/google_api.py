@@ -30,13 +30,13 @@ class GoogleApi(object):
         self.retries = kwargs.get('retries', 3)
         self.credential_cache_file = kwargs.get('credential_cache_file', "creden-cache.json")
         self.cache_dir = kwargs.get('cache_dir', ".")
-        self.log = logging.getLogger("GoogleApi")
+        self.log = logging.getLogger("__name__")
 
     @property
     def service(self):
         """get or create a api service"""
         if self._service is None:
-            # print(f"Creating a service for {self.api} API")
+            # self.log.debug(f"Creating a service for {self.api} API")
             self._service = build(self.api,
                                   self.api_version,
                                   credentials=self.credentials,
@@ -201,17 +201,17 @@ def get_credentials(json_file: Optional[str], scopes: List[str], cache_file: str
     """Get Credentials
     """
 
-    # service account
+    # Service Account
     if _is_service_account_json(json_file):
         return service_account.Credentials.from_service_account_file(json_file)
 
-    # oauth2
+    # OAuth
     cache_file = cache_file if cache_file else get_cache_filename_from_json(json_file)
     if not reset_cache:
         credentials = load_credentials_from_cache(cache_file, scopes)
         if credentials:
             return credentials
-    # no cache found, so run auth flow
+    # no cache found, so run OAuth flow
     credentials = _run_auth_flow(json_file, scopes)
     # save cache
     return save_credentials_to_cache(cache_file, credentials)

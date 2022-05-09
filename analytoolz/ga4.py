@@ -5,6 +5,7 @@ Functions for Google Analytics 4 API
 from collections import OrderedDict
 from datetime import datetime
 from typing import Optional
+import logging
 import pandas as pd
 import pytz
 import re
@@ -35,10 +36,13 @@ from google.api_core.exceptions import Unauthenticated
 from google.oauth2.credentials import Credentials
 # from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
-from . import google_api, utils
+from . import errors, google_api, utils
 
 
-class LaunchGA4:
+LOGGER = logging.getLogger(__name__)
+
+
+class LaunchGA4(object):
     this = "Megaton GA4"
     required_scopes = [
         'https://www.googleapis.com/auth/analytics.edit',
@@ -71,29 +75,29 @@ class LaunchGA4:
         try:
             results_iterator = self.admin_client.list_account_summaries()
         except PermissionDenied as e:
-            print("APIを使う権限がありません。")
+            LOGGER.error("APIを使う権限がありません。")
             m = re.search(r'reason: "([^"]+)', str(sys.exc_info()[1]))
             if m:
                 reason = m.group(1)
                 if reason == 'SERVICE_DISABLED':
-                    print("GCPのプロジェクトでAdmin APIを有効化してください。")
+                    LOGGER.error("GCPのプロジェクトでAdmin APIを有効化してください。")
             message = getattr(e, 'message', repr(e))
-            print(message)
+            LOGGER.warn(message)
         except ServiceUnavailable as e:
             value = str(sys.exc_info()[1])
             m = re.search(r"error: \('([^:']+): ([^']+)", value)
             if m and m.group(1) == 'invalid_grant':
-                print(f"認証の期限が切れています。{m.group(2)}")
+                LOGGER.error(f"認証の期限が切れています。{m.group(2)}")
                 self.credentials = None
                 # google_api.delete_credentials_cache()
             raise e
         except Unauthenticated as e:
-            print("認証に失敗しました。")
+            LOGGER.error("認証に失敗しました。")
             self.credentials = None
-            print(sys.exc_info()[1])
+            LOGGER.warn(sys.exc_info()[1])
         except Exception as e:
             type, value, _ = sys.exc_info()
-            print(value)
+            LOGGER.error(value)
             raise e
         else:
             results = []
@@ -116,7 +120,7 @@ class LaunchGA4:
     # retry(stop=stop_after_attempt(1), retry=retry_if_exception_type(ServiceUnavailable))
     def authorize(self):
         if not isinstance(self.credentials, Credentials):
-            print("Error: The credentials given are in invalid format.")
+            LOGGER.error("The credentials given are in invalid format.")
             self.credentials = None
             return
 
@@ -126,17 +130,18 @@ class LaunchGA4:
             return
 
         if bool(set(self.credentials.scopes) & set(self.required_scopes)):
-            print(f"{self.this} launched!")
-            # print("given scopes look ok")
+            LOGGER.info(f"{self.this} launched!")
+            # LOGGER.debug("given scopes look ok")
             return True
         else:
-            print("Error: The given scopes don't meet requirements.")
+            LOGGER.error("The given scopes don't meet requirements.")
+            raise errors.BadCredentialScope(self.required_scopes)
 
     def build_client(self):
         self.data_client = BetaAnalyticsDataClient(credentials=self.credentials)
         self.admin_client = AnalyticsAdminServiceClient(credentials=self.credentials)
 
-    class Account:
+    class Account(object):
         def __init__(self, parent):
             self.parent = parent
             self.id = None
@@ -152,9 +157,9 @@ class LaunchGA4:
             except ServiceUnavailable as e:
                 # str(sys.exc_info()[1])
                 type, value, traceback = sys.exc_info()
-                print(type)
-                print(value)
-                print(traceback)
+                LOGGER.debug(type)
+                LOGGER.debug(value)
+                LOGGER.debug(traceback)
                 raise e
             except Exception as e:
                 # print(e)
@@ -238,16 +243,16 @@ class LaunchGA4:
             try:
                 response = self.parent.data_client.get_metadata(name=path)
             except PermissionDenied as e:
-                print("APIを使う権限がありません。")
+                LOGGER.error("APIを使う権限がありません。")
                 m = re.search(r'reason: "([^"]+)', str(sys.exc_info()[1]))
                 if m:
                     reason = m.group(1)
                     if reason == 'SERVICE_DISABLED':
-                        print("GCPのプロジェクトでGoogle Analytics Data APIを有効化してください。")
+                        LOGGER.error("GCPのプロジェクトでGoogle Analytics Data APIを有効化してください。")
                 message = getattr(e, 'message', repr(e))
-                print(message)
+                LOGGER.warn(message)
             except Exception as e:
-                print(e)
+                LOGGER.error(e)
                 raise e
             else:
                 dimensions = []
@@ -280,7 +285,7 @@ class LaunchGA4:
                 results_iterator = self.parent.admin_client.list_custom_dimensions(
                     parent=f"properties/{self.id}")
             except Exception as e:
-                print(e)
+                LOGGER.error(e)
             else:
                 results = []
                 for i in results_iterator:
@@ -300,7 +305,7 @@ class LaunchGA4:
                 results_iterator = self.parent.admin_client.list_custom_metrics(
                     parent=f"properties/{self.id}")
             except Exception as e:
-                print(e)
+                LOGGER.error(e)
             else:
                 results = []
                 for i in results_iterator:
@@ -322,7 +327,7 @@ class LaunchGA4:
                 item = self.parent.admin_client.get_data_retention_settings(
                     name=f"properties/{self.id}/dataRetentionSettings")
             except Exception as e:
-                print(e)
+                LOGGER.error(e)
             else:
                 dict = {
                     'data_retention': DataRetentionSettings.RetentionDuration(item.event_data_retention).name,
@@ -416,14 +421,14 @@ class LaunchGA4:
                 res = []
                 for d in list_of_dict:
                     res.append(OrderedDict((k, d[k]) for k in my_order if k in d.keys()))
-                sort_values = ['customized', 'category', 'display_name']
+                sort_values = ['category', 'display_name']
             elif me == 'dimensions':
                 list_of_dict = self.get_dimensions()
                 my_order = ["category", "display_name", "description", "api_name", "parameter_name", "scope"]
                 res = []
                 for d in list_of_dict:
                     res.append(OrderedDict((k, d[k]) for k in my_order if k in d.keys()))
-                sort_values = ['customized', 'category', 'display_name']
+                sort_values = ['category', 'display_name']
             elif me == 'custom_dimensions':
                 index_col = 'api_name'
                 dict = self.get_dimensions()
@@ -484,9 +489,9 @@ class LaunchGA4:
                 )
                 return created_cd
             except Exception as e:
-                print(e)
+                LOGGER.error(e)
 
-    class Report:
+    class Report(object):
         def __init__(self, parent):
             self.parent = parent
             self.start_date = '7daysAgo'
@@ -504,7 +509,7 @@ class LaunchGA4:
                     return r[what]
                 elif r['api_name'] == before:
                     return r[what]
-            print(f"{which[:-1]} {before} is not found.")
+            LOGGER.warn(f"{which[:-1]} {before} is not found.")
             return None
 
         def _format_filter(self, conditions, logic=None):
@@ -666,20 +671,20 @@ class LaunchGA4:
                 response = self.parent.data_client.run_report(request)
                 total_rows = response.row_count
             except PermissionDenied as e:
-                print("権限がありません。")
+                LOGGER.error("権限がありません。")
                 message = getattr(e, 'message', repr(e))
                 ex_value = sys.exc_info()[1]
                 m = re.search(r'reason: "([^"]+)', str(ex_value))
                 if m:
                     reason = m.group(1)
                     if reason == 'SERVICE_DISABLED':
-                        print("GCPのプロジェクトでData APIを有効化してください。")
-                print(message)
+                        LOGGER.error("GCPのプロジェクトでData APIを有効化してください。")
+                LOGGER.warn(message)
             except Exception as e:
                 # print(e)
                 type_, value, traceback_ = sys.exc_info()
-                print(type_)
-                print(value)
+                LOGGER.debug(type_)
+                LOGGER.debug(value)
 
             data, headers, types = self._parse_response(response)
 
@@ -701,7 +706,7 @@ class LaunchGA4:
             """Send request to get report data"""
             start_date = start_date if start_date else self.start_date
             end_date = end_date if end_date else self.end_date
-            print(f"Building a report ({start_date} - {end_date})")
+            LOGGER.info(f"Building a report ({start_date} - {end_date})")
 
             all_rows, offset, page = [], 0, 1
             while True:
@@ -717,8 +722,8 @@ class LaunchGA4:
                 if len(data) > 0:
                     all_rows.extend(data)
                     if offset == 0:
-                        print(f"Total {total_rows} rows found.")
-                    print(f" p{page}: retrieved #{offset + 1} - {offset + len(data)}")
+                        LOGGER.info(f"Total {total_rows} rows found.")
+                    LOGGER.info(f" p{page}: retrieved #{offset + 1} - {offset + len(data)}")
                     if offset + len(data) == total_rows:
                         break
                     else:
@@ -728,7 +733,7 @@ class LaunchGA4:
                     break
 
             if len(all_rows) > 0:
-                print(f"All {len(all_rows)} rows were retrieved.")
+                LOGGER.info(f"All {len(all_rows)} rows were retrieved.")
                 if to_pd:
                     df = pd.DataFrame(all_rows, columns=headers)
                     df = utils.change_column_type(df)
@@ -737,7 +742,7 @@ class LaunchGA4:
                 else:
                     return all_rows, headers, types
             else:
-                print("no data found.")
+                LOGGER.warn("no data found.")
                 if to_pd:
                     return pd.DataFrame()
                 else:
@@ -777,10 +782,9 @@ class LaunchGA4:
             dict = {}
             for item in only:
                 if item not in ignore:
-                    print(f"Auditing dimension {item}...")
+                    LOGGER.info(f"Auditing dimension {item}...")
                     dict[item] = self.audit(item)
-                    print()
-            print("...done")
+            LOGGER.info("...done")
             return dict
 
         def audit_metrics(self, only: list = None, ignore: list = []):
@@ -790,10 +794,9 @@ class LaunchGA4:
             dict = {}
             for item in only:
                 if item not in ignore:
-                    print(f"Auditing metric {item}...")
+                    LOGGER.info(f"Auditing metric {item}...")
                     dict[item] = self.audit(metric=item)
-                    print()
-            print("...done")
+            LOGGER.info("...done")
             return dict
 
         def pv_by_day(self):

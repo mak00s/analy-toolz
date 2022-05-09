@@ -3,6 +3,7 @@ Functions for Google Analytics 3 (Universal Analytics) API
 """
 
 from typing import Optional
+import logging
 import pandas as pd
 import re
 import sys
@@ -10,7 +11,9 @@ import sys
 from googleapiclient import errors
 from google.oauth2.credentials import Credentials
 
-from . import constants, exceptions, ga4, google_api, utils
+from . import constants, errors, ga4, google_api, utils
+
+LOGGER = logging.getLogger(__name__)
 
 
 class Megaton(ga4.LaunchGA4):
@@ -38,13 +41,13 @@ class Megaton(ga4.LaunchGA4):
         """Returns account summaries accessible by the caller."""
         try:
             response = self.admin_client.management().accountSummaries().list().execute()
-        except errors.HttpError as e:
-            print("GCPのプロジェクトでGoogle Analytics APIを有効化してください。")
+        except errors.HttpError:
+            LOGGER.error("GCPのプロジェクトでGoogle Analytics APIを有効化してください。")
             return
         except Exception as e:
             type, value, _ = sys.exc_info()
-            print(f"type = {type}")
-            print(f"value = {value}")
+            LOGGER.debug(f"type = {type}")
+            LOGGER.debug(f"value = {value}")
             raise e
         if response:
             results = []
@@ -234,7 +237,6 @@ class Megaton(ga4.LaunchGA4):
         def get_info(self):
             """Get view data from parent property"""
             i = [p for p in self.parent.property.views if p['id'] == self.id][0]
-            # print(dict)
             self.name = i['name']
             self.currency = i['currency']
             self.time_zone = i['time_zone']
@@ -322,7 +324,7 @@ class Megaton(ga4.LaunchGA4):
                     }
                     clause['filters'].append(filter)
                 except TypeError:
-                    print("metric filter is invalid. ignoring...")
+                    LOGGER.warn("metric filter is invalid. ignoring...")
             return [clause]
 
         def _format_order_bys(self, before: str):
@@ -411,9 +413,9 @@ class Megaton(ga4.LaunchGA4):
             samples_size = report_data['data'].get('samplingSpaceSizes')
             next_token = report_data.get('nextPageToken', None)
             if samples_count:
-                print(f"samplesReadCounts = {samples_count}")
+                LOGGER.warn(f"samplesReadCounts = {samples_count}")
             if samples_size:
-                print(f"samplingSpaceSizes = {samples_size}")
+                LOGGER.warn(f"samplingSpaceSizes = {samples_size}")
 
             # try:
             data, headers, types = self._parse_response(report_data)
@@ -426,7 +428,7 @@ class Megaton(ga4.LaunchGA4):
         def _report_generator(self, request: dict, limit: int = 10000):
             """Send request to get report data"""
             if not self.parent.view.id:
-                # print("Viewを先に選択してから実行してください。")
+                # LOGGER.error("Viewを先に選択してから実行してください。")
                 return
 
             token = "0"
@@ -436,28 +438,28 @@ class Megaton(ga4.LaunchGA4):
                 except errors.HttpError as e:
                     value = str(sys.exc_info()[1])
                     if 'disabled' in value:
-                        print("\nGCPのプロジェクトでAnalytics Reporting APIを有効化してください。")
+                        LOGGER.error("\nGCPのプロジェクトでAnalytics Reporting APIを有効化してください。")
                         return
                     elif 'Invalid value' in value:
-                        print("レポート抽出条件の書式や内容を見直してください。")
+                        LOGGER.error("レポート抽出条件の書式や内容を見直してください。")
                         return
                     else:
                         raise e
 
                 if token == "0" and total_rows:
-                    print(f"Total {total_rows} rows found.")
+                    LOGGER.info(f"Total {total_rows} rows found.")
 
                     if total_rows == 10001:
                         if [d for d in request['dimensions'] if d['name'] == 'ga:clientId']:
                             # print("!! The returned data might be restricted.")
-                            print("clientId is not officially supported by Google. Using this dimension in an "
-                                  "Analytics report may thus result in unexpected & unexplainable behavior (such as "
-                                  "restricting the report to exactly 10,000 or 10,001 rows).")
+                            LOGGER.info("clientId is not officially supported by Google. Using this dimension in an "
+                                        "Analytics report may thus result in unexpected & unexplainable behavior ("
+                                        "such as restricting the report to exactly 10,000 or 10,001 rows).")
                     self.headers = headers
                     self.types = types
 
                 if len(data):
-                    print(f"(received row #{token}-{int(token) + len(data) - 1})")
+                    LOGGER.info(f"(received row #{token}-{int(token) + len(data) - 1})")
 
                 for row in data:
                     yield row
@@ -467,18 +469,18 @@ class Megaton(ga4.LaunchGA4):
                     break
                 if len(data) == 0:
                     # API bug
-                    raise exceptions.PartialDataReturned()
+                    raise errors.PartialDataReturned()
 
                 token = next_token
 
         def show(self, dimensions: list, metrics: list, return_generator: Optional[bool] = None, **kwargs):
             """Get Analytics report data"""
             if not self.parent.view.id:
-                print("Viewを先に選択してから実行してください。")
+                LOGGER.error("Viewを先に選択してから実行してください。")
                 return
             start_date = kwargs.get('start_date', self.start_date)
             end_date = kwargs.get('end_date', self.end_date)
-            print(f"Requesting a report ({start_date} - {end_date})")
+            LOGGER.info(f"Requesting a report ({start_date} - {end_date})")
 
             request = self._format_request(
                 dimensions=dimensions,
@@ -501,18 +503,18 @@ class Megaton(ga4.LaunchGA4):
 
             try:
                 return pd.DataFrame(list(iterator), columns=self.headers)
-            except exceptions.PartialDataReturned:
-                print("APIのバグにより全データを取得できませんでした。")
+            except errors.PartialDataReturned:
+                LOGGER.warn("APIのバグにより全データを取得できませんでした。")
                 if start_date != end_date:
-                    print("1日毎にデータを分割して取得してみます。")
+                    LOGGER.warn("1日毎にデータを分割して取得します。")
                     all_data = []
                     for date in utils.get_date_range(start_date, end_date):
-                        print(f"...{date}: ", end='')
+                        print(f"...{date}", end='')
                         request['dateRanges'][0]['startDate'] = date
                         request['dateRanges'][0]['endDate'] = date
                         request['pageToken'] = "0"
                         iterator = self._report_generator(request, kwargs.get('limit', 10000))
                         data = list(iterator)
-                        print(f"{len(data)} rows")
+                        LOGGER.debug(f"{len(data)} rows")
                         all_data.extend(data)
                     return pd.DataFrame(all_data, columns=self.headers)
