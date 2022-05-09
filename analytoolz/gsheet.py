@@ -179,7 +179,7 @@ class LaunchGS(object):
                     }
                 }
                 _requests.append(dim)
-            self.parent._client.batch_update({'requests': _requests})
+            self.parent._driver.batch_update({'requests': _requests})
 
         def resize(self, col: int, width: int):
             """Resize columns"""
@@ -201,7 +201,7 @@ class LaunchGS(object):
                     }
                 }
                 _requests.append(dim)
-            self.parent._client.batch_update({'requests': _requests})
+            self.parent._driver.batch_update({'requests': _requests})
 
         def freeze(self, rows: Optional[int] = None, cols: Optional[int] = None):
             """Freeze rows and/or columns on the worksheet"""
