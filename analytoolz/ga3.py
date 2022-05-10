@@ -3,12 +3,13 @@ Functions for Google Analytics 3 (Universal Analytics) API
 """
 
 from typing import Optional
+import json
 import logging
 import pandas as pd
 import re
 import sys
 
-from googleapiclient import errors
+from googleapiclient import errors as err
 from google.oauth2.credentials import Credentials
 
 from . import constants, errors, ga4, google_api, utils
@@ -41,7 +42,7 @@ class Megaton(ga4.LaunchGA4):
         """Returns account summaries accessible by the caller."""
         try:
             response = self.admin_client.management().accountSummaries().list().execute()
-        except errors.HttpError:
+        except err.HttpError:
             LOGGER.error("GCPのプロジェクトでGoogle Analytics APIを有効化してください。")
             return
         except Exception as e:
@@ -398,12 +399,20 @@ class Megaton(ga4.LaunchGA4):
             if token:
                 request["pageToken"] = token
 
-            response = self.parent.data_client.reports().batchGet(
-                body={
-                    'reportRequests': [request],
-                    'useResourceQuotas': False  # only for 360
-                }
-            ).execute()
+            try:
+                response = self.parent.data_client.reports().batchGet(
+                    body={
+                        'reportRequests': [request],
+                        'useResourceQuotas': False  # only for 360
+                    }
+                ).execute()
+            except err.HttpError as e:
+                data = json.loads(e.content.decode('utf-8'))
+                code = data['error']["code"]
+                message = data['error']['message']
+                if code == 400:  # and "rate limit exceeded" in message.lower():
+                    LOGGER.error(message)
+                    raise errors.BadRequest(message)
 
             report_data = response.get('reports', [])[0]
 
@@ -435,7 +444,7 @@ class Megaton(ga4.LaunchGA4):
             while True:
                 try:
                     (data, total_rows, headers, types, next_token) = self._request_report_api(limit, token, request)
-                except errors.HttpError as e:
+                except err.HttpError as e:
                     value = str(sys.exc_info()[1])
                     if 'disabled' in value:
                         LOGGER.error("\nGCPのプロジェクトでAnalytics Reporting APIを有効化してください。")

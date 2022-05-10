@@ -273,4 +273,4 @@ class LaunchGS(object):
                     return
 
                 self.address = gspread.utils.rowcol_to_a1(row, col) if col else row
-
+                return self.data
