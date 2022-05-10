@@ -36,6 +36,11 @@ class BadCredentialScope(Error):
         return f'{self.message} Required scopes are: {self.scopes}'
 
 
+class BadRequest(Error):
+    """"Request given has errors"""
+    pass
+
+
 class BadCredentialFormat(Error):
     """Credentials given are not an instance of google.oauth2.credentials.Credentials"""
 
