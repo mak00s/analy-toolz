@@ -607,18 +607,17 @@ def to_page_cid(_df: pd.DataFrame):
 def cid_last_returned_date(ga3):
     """元データ抽出：再訪問した人の最終訪問日
     """
-    try:
-        df = ga3.report.show(
-            dimensions=[
-                'clientId',
-                'date',
-            ],
-            dimension_filter='ga:sessionCount!=1',
-            metrics=[
-                'entrances',
-            ],
-            order='ga:clientId,ga:date',
-        )
+    df = ga3.report.show(
+        dimensions=[
+            'clientId',
+            'date',
+        ],
+        dimension_filter='ga:sessionCount!=1',
+        metrics=[
+            'entrances',
+        ],
+        order='ga:clientId,ga:date',
+    )
 
     # 人単位でまとめて最後に訪問した日を算出
     _df = df.groupby(['clientId']).max().rename(columns={'date': 'last_visit_date'})
