@@ -609,22 +609,25 @@ def to_page_cid(_df: pd.DataFrame):
 def cid_last_returned_date(ga3):
     """元データ抽出：再訪問した人の最終訪問日
     """
-    df = ga3.report.show(
-        dimensions=[
-            'clientId',
-            'date',
-        ],
-        dimension_filter='ga:sessionCount!=1',
-        metrics=[
-            'entrances',
-        ],
-        order='ga:clientId,ga:date',
-    )
+    try:
+        df = ga3.report.show(
+            dimensions=[
+                'clientId',
+                'date',
+            ],
+            dimension_filter='ga:sessionCount!=1',
+            metrics=[
+                'entrances',
+            ],
+            order='ga:clientId,ga:date',
+        )
+    except errors.ApiDisabled:
+        pass
+    else:
+        # 人単位でまとめて最後に訪問した日を算出
+        _df = df.groupby(['clientId']).max().rename(columns={'date': 'last_visit_date'})
 
-    # 人単位でまとめて最後に訪問した日を算出
-    _df = df.groupby(['clientId']).max().rename(columns={'date': 'last_visit_date'})
-
-    return _df.drop(['entrances'], inplace=False, axis=1)
+        return _df.drop(['entrances'], inplace=False, axis=1)
 
 
 def to_page_cid_return(df1, df2):
@@ -652,21 +655,24 @@ def cv_cid(ga3, include_pages=None, metric_filter='ga:entrances<1'):
         filter.append(f'pagePath=~{include_pages}')
     dimension_filter = ";".join(filter)
 
-    _df = ga3.report.show(
-        dimensions=[
-            'pagePath',
-            'clientId',
-            'date',
-            'sessionCount',
-        ],
-        dimension_filter=dimension_filter,
-        metrics=[
-            'users',
-        ],
-        metric_filter=metric_filter,
-        order='ga:pagePath,ga:clientId,ga:date',
-    ).drop(['users'], axis=1)
-    return _df
+    try:
+        _df = ga3.report.show(
+            dimensions=[
+                'pagePath',
+                'clientId',
+                'date',
+                'sessionCount',
+            ],
+            dimension_filter=dimension_filter,
+            metrics=[
+                'users',
+            ],
+            metric_filter=metric_filter,
+            order='ga:pagePath,ga:clientId,ga:date',
+        ).drop(['users'], axis=1)
+        return _df
+    except errors.ApiDisabled:
+        pass
 
 
 def to_cid_last_cv(df):
@@ -759,23 +765,24 @@ def get_page_title(ga3, include_domains=None, include_pages=None, exclude_pages=
     except errors.BadRequest as e:
         print(f"条件の書き方に問題があります：{e}")
         return
+    except errors.ApiDisabled:
+        pass
+    else:
+        df.rename(columns={
+            'pagePath': 'page',
+            'pageTitle': 'title',
+        }, inplace=True)
 
-    df.rename(columns={
-        'pagePath': 'page',
-        'pageTitle': 'title',
-    }, inplace=True)
+        # 値を変換
+        if page_regex:
+            utils.format_df(df, [('page', page_regex, '')])
+        if title_regex:
+            utils.format_df(df, [('title', title_regex, '')])
 
-    # 値を変換
-    if page_regex:
-        utils.format_df(df, [('page', page_regex, '')])
-    if title_regex:
-        utils.format_df(df, [('title', title_regex, '')])
-
-    # group byでまとめる
-    try:
-        return df.sort_values(['page', 'uniquePageviews'], ascending=False).groupby('page').first().reset_index()[
-        ['page', 'title']]
-    except KeyError:
-        LOGGER.warn("No data found.")
-        return pd.DataFrame()
-
+        # group byでまとめる
+        try:
+            return df.sort_values(['page', 'uniquePageviews'], ascending=False).groupby('page').first().reset_index()[
+            ['page', 'title']]
+        except KeyError:
+            LOGGER.warn("No data found.")
+            return pd.DataFrame()
