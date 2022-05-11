@@ -76,13 +76,14 @@ class LaunchGA4(object):
             results_iterator = self.admin_client.list_account_summaries()
         except PermissionDenied as e:
             LOGGER.error("APIを使う権限がありません。")
+            message = getattr(e, 'message', repr(e))
+            LOGGER.warn(message)
             m = re.search(r'reason: "([^"]+)', str(sys.exc_info()[1]))
             if m:
                 reason = m.group(1)
                 if reason == 'SERVICE_DISABLED':
                     LOGGER.error("GCPのプロジェクトでAdmin APIを有効化してください。")
-            message = getattr(e, 'message', repr(e))
-            LOGGER.warn(message)
+                    raise error.ApiDisabled
         except ServiceUnavailable as e:
             value = str(sys.exc_info()[1])
             m = re.search(r"error: \('([^:']+): ([^']+)", value)

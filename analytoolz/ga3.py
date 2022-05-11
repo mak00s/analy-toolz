@@ -42,9 +42,10 @@ class Megaton(ga4.LaunchGA4):
         """Returns account summaries accessible by the caller."""
         try:
             response = self.admin_client.management().accountSummaries().list().execute()
-        except err.HttpError:
-            LOGGER.error("GCPのプロジェクトでGoogle Analytics APIを有効化してください。")
-            return
+        except err.HttpError as e:
+            if e.resp.status == 403:
+                LOGGER.error(f"GCPのプロジェクトでGoogle Analytics APIを有効化してください。{e.resp.status}")
+                raise error.ApiDisabled
         except Exception as e:
             type, value, _ = sys.exc_info()
             LOGGER.debug(f"type = {type}")
@@ -706,7 +707,7 @@ def to_page_participation(df):
         'returns': 'return_users',
         'cv': 'cv_users',
         }, inplace=True)
-    return _df
+    return _df.sort_values('users', ascending=False)
 
 
 def get_page_title(ga3, include_domains=None, include_pages=None, exclude_pages=None, page_regex=None, title_regex=None):
