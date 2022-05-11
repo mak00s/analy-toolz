@@ -173,8 +173,7 @@ def _is_service_account_key(key_json_text: str):
 
 
 def _run_auth_flow(client_secret_file: Optional[str], scopes: List[str], config: Optional[dict] = {}):
-    """Run OAuth2 Flow
-    """
+    """Run OAuth2 Flow"""
     if os.path.exists(client_secret_file):
         flow = InstalledAppFlow.from_client_secrets_file(
             client_secret_file,
@@ -198,8 +197,7 @@ def _run_auth_flow(client_secret_file: Optional[str], scopes: List[str], config:
 
 
 def get_credentials(json_file: Optional[str], scopes: List[str], cache_file: str = '', reset_cache=False):
-    """Get Credentials
-    """
+    """Get Credentials"""
 
     # Service Account
     if _is_service_account_json(json_file):
