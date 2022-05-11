@@ -44,7 +44,7 @@ class Megaton(ga4.LaunchGA4):
             response = self.admin_client.management().accountSummaries().list().execute()
         except err.HttpError as e:
             if e.resp.status == 403:
-                LOGGER.error(f"GCPのプロジェクトでGoogle Analytics APIを有効化してください。{e.resp.status}")
+                LOGGER.error(f"GCPのプロジェクトでGoogle Analytics APIを有効化してください。")
                 raise errors.ApiDisabled
         except Exception as e:
             type, value, _ = sys.exc_info()
@@ -400,20 +400,22 @@ class Megaton(ga4.LaunchGA4):
             if token:
                 request["pageToken"] = token
 
-            try:
-                response = self.parent.data_client.reports().batchGet(
-                    body={
-                        'reportRequests': [request],
-                        'useResourceQuotas': False  # only for 360
-                    }
-                ).execute()
-            except err.HttpError as e:
-                data = json.loads(e.content.decode('utf-8'))
-                code = data['error']["code"]
-                message = data['error']['message']
-                if code == 400:  # and "rate limit exceeded" in message.lower():
-                    LOGGER.error(message)
-                    raise errors.BadRequest(message)
+            # try:
+            response = self.parent.data_client.reports().batchGet(
+                body={
+                    'reportRequests': [request],
+                    'useResourceQuotas': False  # only for 360
+                }
+            ).execute()
+            # except err.HttpError as e:
+            #     data = json.loads(e.content.decode('utf-8'))
+            #     code = data['error']["code"]
+            #     message = data['error']['message']
+            #     if code == 400:  # and "rate limit exceeded" in message.lower():
+            #         LOGGER.error(message)
+            #         raise errors.BadRequest(message)
+            #     else:
+            #         raise e
 
             report_data = response.get('reports', [])[0]
 
@@ -449,10 +451,12 @@ class Megaton(ga4.LaunchGA4):
                     value = str(sys.exc_info()[1])
                     if 'disabled' in value:
                         LOGGER.error("\nGCPのプロジェクトでAnalytics Reporting APIを有効化してください。")
-                        return
+                        # return
+                        raise errors.ApiDisabled
                     elif 'Invalid value' in value:
                         LOGGER.error("レポート抽出条件の書式や内容を見直してください。")
-                        return
+                        # return
+                        raise errors.BadRequest
                     else:
                         raise e
 
@@ -564,7 +568,8 @@ def cid_date_page(ga3, include_domains=None, include_pages=None, exclude_pages=N
             limit=10000)
     except errors.BadRequest as e:
         print(f"条件の書き方に問題があります：{e}")
-        return
+    except errors.ApiDisabled:
+        pass
     else:
         # 値を変換
         if len(df):
