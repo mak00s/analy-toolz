@@ -619,11 +619,11 @@ def cid_last_returned_date(ga3):
             ],
             order='ga:clientId,ga:date',
         )
-    else:
-        # 人単位でまとめて最後に訪問した日を算出
-        _df = df.groupby(['clientId']).max().rename(columns={'date': 'last_visit_date'})
 
-        return _df.drop(['entrances'], inplace=False, axis=1)
+    # 人単位でまとめて最後に訪問した日を算出
+    _df = df.groupby(['clientId']).max().rename(columns={'date': 'last_visit_date'})
+
+    return _df.drop(['entrances'], inplace=False, axis=1)
 
 
 def to_page_cid_return(df1, df2):
@@ -651,22 +651,21 @@ def cv_cid(ga3, include_pages=None, metric_filter='ga:entrances<1'):
         filter.append(f'pagePath=~{include_pages}')
     dimension_filter = ";".join(filter)
 
-    try:
-        _df = ga3.report.show(
-            dimensions=[
-                'pagePath',
-                'clientId',
-                'date',
-                'sessionCount',
-            ],
-            dimension_filter=dimension_filter,
-            metrics=[
-                'users',
-            ],
-            metric_filter=metric_filter,
-            order='ga:pagePath,ga:clientId,ga:date',
-        ).drop(['users'], axis=1)
-        return _df
+    _df = ga3.report.show(
+        dimensions=[
+            'pagePath',
+            'clientId',
+            'date',
+            'sessionCount',
+        ],
+        dimension_filter=dimension_filter,
+        metrics=[
+            'users',
+        ],
+        metric_filter=metric_filter,
+        order='ga:pagePath,ga:clientId,ga:date',
+    ).drop(['users'], axis=1)
+    return _df
 
 
 def to_cid_last_cv(df):
