@@ -419,7 +419,7 @@ class Megaton(ga4.LaunchGA4):
 
             report_data = response.get('reports', [])[0]
 
-            total_rows = report_data['data']['rowCount']
+            total_rows = report_data['data'].get('rowCount', 0)
 
             samples_count = report_data['data'].get('samplesReadCounts')
             samples_size = report_data['data'].get('samplingSpaceSizes')
@@ -517,6 +517,9 @@ class Megaton(ga4.LaunchGA4):
 
             try:
                 return pd.DataFrame(list(iterator), columns=self.headers)
+            except AttributeError:
+                LOGGER.info("No data found.")
+                return pd.DataFrame()
             except errors.PartialDataReturned:
                 LOGGER.warn("APIのバグにより全データを取得できませんでした。")
                 if start_date != end_date:
@@ -581,9 +584,12 @@ def cid_date_page(ga3, include_domains=None, include_pages=None, exclude_pages=N
             })
 
 
-def to_page_cid(_df):
+def to_page_cid(_df: pd.DataFrame):
     """Pageと人でまとめて回遊を算出
     """
+    if not isinstance(_df, pd.DataFrame):
+        return
+
     df = _df.groupby(['page', 'clientId']).agg({
         'date': 'min',  # 初めて閲覧した日（再訪問とCVの判定で使う）
         'sessionCount': 'min',  # 初めて閲覧したセッション番号（CVの判定で使う）
@@ -624,6 +630,8 @@ def cid_last_returned_date(ga3):
 def to_page_cid_return(df1, df2):
     """閲覧後の再訪問を判定
     """
+    if not isinstance(df1, pd.DataFrame):
+        return
     _df = pd.merge(
         df1.drop(['sessions', 'exits'], inplace=False, axis=1),
         df2,
@@ -664,6 +672,9 @@ def cv_cid(ga3, include_pages=None, metric_filter='ga:entrances<1'):
 def to_cid_last_cv(df):
     """人単位でまとめて最後にCVした日を算出
     """
+    if not isinstance(df, pd.DataFrame):
+        return
+
     _df = df[['clientId', 'date', 'sessionCount']].groupby(['clientId']).max()
     _df.rename(columns={
         'date': 'last_cv_date',
@@ -675,6 +686,9 @@ def to_cid_last_cv(df):
 def to_cv(df1, df2):
     """コンテンツ閲覧後のCVを判定
     """
+    if not isinstance(df1, pd.DataFrame):
+        return
+
     _df = pd.merge(
         df1.drop(['last_visit_date'], inplace=False, axis=1),
         df2,
@@ -697,6 +711,9 @@ def to_cv(df1, df2):
 def to_page_participation(df):
     """Page単位でまとめる
     """
+    if not isinstance(df, pd.DataFrame):
+        return
+
     _df = df.groupby('page').agg({
         'clientId': 'nunique',
         'entrances': 'sum',
@@ -755,6 +772,10 @@ def get_page_title(ga3, include_domains=None, include_pages=None, exclude_pages=
         utils.format_df(df, [('title', title_regex, '')])
 
     # group byでまとめる
-    return df.sort_values(['page', 'uniquePageviews'], ascending=False).groupby('page').first().reset_index()[
+    try:
+        return df.sort_values(['page', 'uniquePageviews'], ascending=False).groupby('page').first().reset_index()[
         ['page', 'title']]
+    except KeyError:
+        LOGGER.warn("No data found.")
+        return pd.DataFrame()
 

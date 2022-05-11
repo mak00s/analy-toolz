@@ -29,7 +29,11 @@ def format_df(df: pd.DataFrame, rules: list):
     """
     for r in rules:
         col, rule, to = r
-        df[col].replace(rule, to, inplace=True, regex=True)
+        try:
+            df[col].replace(rule, to, inplace=True, regex=True)
+        except KeyError as e:
+            print(e)
+            pass
 
 
 def get_date_range(start_date: str, end_date: str, format: str = None):
