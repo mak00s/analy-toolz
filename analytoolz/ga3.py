@@ -45,7 +45,7 @@ class Megaton(ga4.LaunchGA4):
         except err.HttpError as e:
             if e.resp.status == 403:
                 LOGGER.error(f"GCPのプロジェクトでGoogle Analytics APIを有効化してください。{e.resp.status}")
-                raise error.ApiDisabled
+                raise errors.ApiDisabled
         except Exception as e:
             type, value, _ = sys.exc_info()
             LOGGER.debug(f"type = {type}")
