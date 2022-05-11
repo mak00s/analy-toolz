@@ -571,8 +571,6 @@ def cid_date_page(ga3, include_domains=None, include_pages=None, exclude_pages=N
             limit=10000)
     except errors.BadRequest as e:
         print(f"条件の書き方に問題があります：{e}")
-    except errors.ApiDisabled:
-        pass
     else:
         # 値を変換
         if len(df):
@@ -621,8 +619,6 @@ def cid_last_returned_date(ga3):
             ],
             order='ga:clientId,ga:date',
         )
-    except errors.ApiDisabled:
-        pass
     else:
         # 人単位でまとめて最後に訪問した日を算出
         _df = df.groupby(['clientId']).max().rename(columns={'date': 'last_visit_date'})
@@ -671,8 +667,6 @@ def cv_cid(ga3, include_pages=None, metric_filter='ga:entrances<1'):
             order='ga:pagePath,ga:clientId,ga:date',
         ).drop(['users'], axis=1)
         return _df
-    except errors.ApiDisabled:
-        pass
 
 
 def to_cid_last_cv(df):
@@ -765,8 +759,6 @@ def get_page_title(ga3, include_domains=None, include_pages=None, exclude_pages=
     except errors.BadRequest as e:
         print(f"条件の書き方に問題があります：{e}")
         return
-    except errors.ApiDisabled:
-        pass
     else:
         df.rename(columns={
             'pagePath': 'page',
