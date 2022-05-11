@@ -21,12 +21,15 @@ def change_column_type(df: pd.DataFrame, to_date=None, to_datetime=None):
     return df
 
 
-def get_chunked_list(original_list: list, chunk_size: int = 100):
-    """Split a list into chunks"""
-    chunked_list = []
-    for i in range(0, len(original_list), chunk_size):
-        chunked_list.append(original_list[i:i + chunk_size])
-    return chunked_list
+def format_df(df: pd.DataFrame, rules: list):
+    """Convert dataframe columns using regex
+    Args
+        df: dataframe to be converted
+        rules: list of tuple (column name, regex, to)
+    """
+    for r in rules:
+        col, rule, to = r
+        df[col].replace(rule, to, inplace=True, regex=True)
 
 
 def get_date_range(start_date: str, end_date: str, format: str = None):
@@ -35,3 +38,11 @@ def get_date_range(start_date: str, end_date: str, format: str = None):
     if not format:
         format = '%Y-%m-%d'
     return [d.strftime(format) for d in date_range]
+
+
+def get_chunked_list(original_list: list, chunk_size: int = 100):
+    """Split a list into chunks"""
+    chunked_list = []
+    for i in range(0, len(original_list), chunk_size):
+        chunked_list.append(original_list[i:i + chunk_size])
+    return chunked_list
