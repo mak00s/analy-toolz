@@ -90,7 +90,6 @@ class LaunchGA4(object):
             if m and m.group(1) == 'invalid_grant':
                 LOGGER.error(f"認証の期限が切れています。{m.group(2)}")
                 self.credentials = None
-                # google_api.delete_credentials_cache()
             raise e
         except Unauthenticated as e:
             LOGGER.error("認証に失敗しました。")
@@ -132,7 +131,6 @@ class LaunchGA4(object):
 
         if bool(set(self.credentials.scopes) & set(self.required_scopes)):
             LOGGER.info(f"{self.this} launched!")
-            # LOGGER.debug("given scopes look ok")
             return True
         else:
             LOGGER.error("The given scopes don't meet requirements.")
@@ -682,7 +680,6 @@ class LaunchGA4(object):
                         LOGGER.error("GCPのプロジェクトでData APIを有効化してください。")
                 LOGGER.warn(message)
             except Exception as e:
-                # print(e)
                 type_, value, traceback_ = sys.exc_info()
                 LOGGER.debug(type_)
                 LOGGER.debug(value)
