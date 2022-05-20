@@ -7,6 +7,7 @@ import logging
 import pandas as pd
 
 from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
 from gspread_dataframe import set_with_dataframe
 import gspread
 
@@ -36,7 +37,8 @@ class LaunchGS(object):
 
     def _authorize(self):
         """Validate credentials given and build client"""
-        if not isinstance(self.credentials, Credentials):
+        if not isinstance(self.credentials, Credentials) and not isinstance(self.credentials,
+                                                                            service_account.Credentials):
             self.credentials = None
             raise errors.BadCredentialFormat
         elif not set(self.required_scopes) <= set(self.credentials.scopes):
@@ -139,7 +141,6 @@ class LaunchGS(object):
         def last_row(self):
             """looks for the last row based on values appearing in all columns
             """
-            # self.refresh_sheet()
             cols = self._driver.range(1, 1, self._driver.row_count, self._driver.col_count)
             last = [cell.row for cell in cols if cell.value]
             return max(last) if last else 0
