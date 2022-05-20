@@ -40,7 +40,7 @@ class LaunchGS(object):
         if not isinstance(self.credentials, (Credentials, service_account.Credentials)):
             self.credentials = None
             raise errors.BadCredentialFormat
-        elif self.required_scopes:
+        elif self.credentials.scopes:
             if not set(self.required_scopes) <= set(self.credentials.scopes):
                 self.credentials = None
                 raise errors.BadCredentialScope(self.required_scopes)
