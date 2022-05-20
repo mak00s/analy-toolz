@@ -8,6 +8,7 @@ import pandas as pd
 
 from google.oauth2.credentials import Credentials
 from google.oauth2 import service_account
+from google.auth.exceptions import RefreshError
 from gspread_dataframe import set_with_dataframe
 import gspread
 
@@ -44,8 +45,7 @@ class LaunchGS(object):
             if not set(self.required_scopes) <= set(self.credentials.scopes):
                 self.credentials = None
                 raise errors.BadCredentialScope(self.required_scopes)
-        else:
-            self._client = gspread.authorize(self.credentials)
+        self._client = gspread.authorize(self.credentials)
 
     @property
     def sheets(self):
@@ -77,6 +77,8 @@ class LaunchGS(object):
 
         try:
             title = self._driver.title
+        except RefreshError:
+            raise errors.BadCredentialScope
         except gspread.exceptions.APIError as e:
             if 'disabled' in str(e):
                 raise errors.ApiDisabled

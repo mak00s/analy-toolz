@@ -201,7 +201,7 @@ def get_credentials(json_file: Optional[str], scopes: List[str], cache_file: str
 
     # Service Account
     if _is_service_account_json(json_file):
-        return service_account.Credentials.from_service_account_file(json_file)
+        return service_account.Credentials.from_service_account_file(json_file, scopes=scopes)
 
     # OAuth
     cache_file = cache_file if cache_file else get_cache_filename_from_json(json_file)
