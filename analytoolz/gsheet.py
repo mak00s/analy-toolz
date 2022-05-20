@@ -37,13 +37,13 @@ class LaunchGS(object):
 
     def _authorize(self):
         """Validate credentials given and build client"""
-        if not isinstance(self.credentials, Credentials) and not isinstance(self.credentials,
-                                                                            service_account.Credentials):
+        if not isinstance(self.credentials, (Credentials, service_account.Credentials)):
             self.credentials = None
             raise errors.BadCredentialFormat
-        elif not set(self.required_scopes) <= set(self.credentials.scopes):
-            self.credentials = None
-            raise errors.BadCredentialScope(self.required_scopes)
+        elif self.required_scopes:
+            if not set(self.required_scopes) <= set(self.credentials.scopes):
+                self.credentials = None
+                raise errors.BadCredentialScope(self.required_scopes)
         else:
             self._client = gspread.authorize(self.credentials)
 
