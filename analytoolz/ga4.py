@@ -588,7 +588,10 @@ class LaunchGA4(object):
             """
             type = type.replace('TYPE_', '')
             if type in ['INTEGER', 'HOURS', 'MINUTES', 'SECONDS', 'MILLISECONDS']:
-                return int(value)
+                try:
+                    return int(value)
+                except:
+                    return value
             elif type in ['FLOAT']:
                 return float(value)
             else:
