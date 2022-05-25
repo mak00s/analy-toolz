@@ -5,7 +5,7 @@ with open("README.md", "r") as f:
 
 setup(
     name='analytoolz',
-    version='0.5.9',
+    version='0.6.0',
     author='Mak Shimizu',
     author_email='mak@fish.razor.jp',
     description='Utilities for Google Analytics, Google Analytics 4 and Google Cloud Platform.',
