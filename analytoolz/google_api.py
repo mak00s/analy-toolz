@@ -191,7 +191,7 @@ def _run_auth_flow(client_secret_file: Optional[str], scopes: List[str], config:
     print("以下のURLをクリックし、Google認証後に表示される文字列をコピーし、")
     print(auth_url)
     time.sleep(4)
-    code = input("以下の入力欄に貼り付けてエンターキーを押してください")
+    code = input("以下の入力欄に貼り付けてエンターを押してください")
     flow.fetch_token(code=code)
     return flow.credentials
 
