@@ -16,6 +16,7 @@ class Launch(object):
         self.creds = None
         self.ga3 = None
         self.ga4 = None
+        self.ga_ver = None
         self.gs = None
         self.json = json
         if json:
@@ -30,10 +31,12 @@ class Launch(object):
             if 'invalid_grant' in str(sys.exc_info()[1]):
                 print(f"期限が切れたようなので、もう一度認証します。")
                 self.creds = google_api.get_credentials(self.json, constants.DEFAULT_SCOPES, reset_cache=True)
-                clear_output()
+
         except Exception as e:
             raise e
 
+    """Google Analytics
+    """
     def launch_ga4(self):
         """GA4の準備"""
         self.ga4 = ga4.LaunchGA4(self.creds)
@@ -41,7 +44,9 @@ class Launch(object):
 
     def select_ga4_property(self):
         """GA4のアカウントとプロパティを選択"""
+        clear_output()
         if self.ga4.accounts:
+            print("　　↓GAのアカウントとプロパティを以下から選択してください")
             menu1, menu2, _ = widget.create_ga_account_property_menu(self.ga4.accounts)
 
             @interact(value=menu1)
@@ -58,8 +63,9 @@ class Launch(object):
             def menu2_selected(value):
                 if value:
                     self.ga4.property.select(value)
-                    print(
-                        f"Property ID {self.ga4.property.id} was created on {self.ga4.property.created_time.strftime('%Y-%m-%d')}")
+                    print(f"Property ID：{self.ga4.property.id}」、",
+                          f"作成日：{self.ga4.property.created_time.strftime('%Y-%m-%d')}")
+                    self.ga_ver = 4
         else:
             print("権限が付与されたGA4アカウントが見つかりません。")
 
@@ -98,47 +104,28 @@ class Launch(object):
             def menu3_selected(value):
                 if value:
                     self.ga3.view.select(value)
-                    print(f"View ID {self.ga3.view.id} was created on {self.ga3.view.created_time}")
+                    print(f"View ID：{self.ga3.view.id}、作成日：{self.ga3.view.created_time}")
+                    self.ga_ver = 3
         else:
             print("権限が付与されたGAアカウントが見つかりません。")
 
-    def launch_gs(self, url):
-        try:
-            self.gs = gsheet.LaunchGS(self.creds, url)
-        except errors.BadCredentialFormat:
-            print("認証情報のフォーマットが正しくないため、Google Sheets APIを利用できません。")
-        except errors.BadCredentialScope:
-            print("認証情報のスコープ不足のため、Google Sheets APIを利用できません。")
-        except errors.BadUrlFormat:
-            print("URLのフォーマットが正しくありません")
-        except errors.ApiDisabled:
-            print("Google SheetsのAPIが有効化されていません。")
-        except errors.UrlNotFound:
-            print("URLが見つかりません。")
-        except errors.BadPermission:
-            print("該当スプレッドシートを読み込む権限がありません。")
-        except Exception as e:
-            raise e
-        else:
-            if self.gs.title:
-                print(f"Googleスプレッドシート「{self.gs.title}」を開きました。")
-                return True
+    def set_dates(self, date1, date2):
+        if self.ga_ver == 3:
+            self.ga3.report.set_dates(date1, date2)
+        elif self.ga_ver == 4:
+            self.ga4.report.set_dates(date1, date2)
+        print(f"レポート期間は{date1}〜{date2}")
 
-    def select_sheet(self, sheet_name):
-        try:
-            name = self.gs.sheet.select(sheet_name)
-        except errors.SheetNotFound:
-            print(f"{sheet_name} シートが存在しません。")
-        if name:
-            print(f"「{sheet_name}」を開きました。")
-            return True
-
-    def load_cell(self, row, col, what: str = None):
-        self.gs.sheet.cell.select(row, col)
-        value = self.gs.sheet.cell.data
-        if what:
-            print(f"{what}は{value}")
-        return value
+    def report(self,
+               d: list,
+               m: list,
+               filter_d=None,
+               filter_m=None,
+               order=None):
+        if self.ga_ver == 3:
+            return self.ga3.report.run(*args)
+        elif self.ga_ver == 4:
+            return self.ga4.report.run(d, m, dimension_filter=filter_d, metric_filter=filter_m,order_bys=order)
 
     def analyze_content(self, sheet_name: str = '使い方'):
         # 設定をシートから読み込む
@@ -193,4 +180,47 @@ class Launch(object):
                 self.gs.sheet.resize(col=1, width=300)
                 self.gs.sheet.resize(col=2, width=300)
                 self.gs.sheet.freeze(rows=1)
-                print(f"Google Sheetsを更新しました。")
+                print(f"レポートのデータを上書き保存しました。")
+
+    def user_explorer(self):
+        pass
+
+    """Google Sheets
+    """
+    def launch_gs(self, url):
+        try:
+            self.gs = gsheet.LaunchGS(self.creds, url)
+        except errors.BadCredentialFormat:
+            print("認証情報のフォーマットが正しくないため、Google Sheets APIを利用できません。")
+        except errors.BadCredentialScope:
+            print("認証情報のスコープ不足のため、Google Sheets APIを利用できません。")
+        except errors.BadUrlFormat:
+            print("URLのフォーマットが正しくありません")
+        except errors.ApiDisabled:
+            print("Google SheetsのAPIが有効化されていません。")
+        except errors.UrlNotFound:
+            print("URLが見つかりません。")
+        except errors.BadPermission:
+            print("該当スプレッドシートを読み込む権限がありません。")
+        except Exception as e:
+            raise e
+        else:
+            if self.gs.title:
+                print(f"Googleスプレッドシート「{self.gs.title}」を開きました。")
+                return True
+
+    def select_sheet(self, sheet_name):
+        try:
+            name = self.gs.sheet.select(sheet_name)
+        except errors.SheetNotFound:
+            print(f"{sheet_name} シートが存在しません。")
+        if name:
+            print(f"「{sheet_name}」シートを選択しました。")
+            return True
+
+    def load_cell(self, row, col, what: str = None):
+        self.gs.sheet.cell.select(row, col)
+        value = self.gs.sheet.cell.data
+        if what:
+            print(f"{what}は{value}")
+        return value
