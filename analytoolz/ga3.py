@@ -90,6 +90,21 @@ class Megaton(ga4.LaunchGA4):
             self.properties = results
             return results
 
+        @property
+        def segments(self):
+            """Returns built-in and custom segments for the account."""
+            response = self.parent.admin_client.management().segments().list().execute()
+            results = []
+            for i in response.get('items', []):
+                dict = {
+                    'id': i['id'],
+                    'name': i['name'],
+                    'type': i['type'],
+                    'definition': i['definition'],
+                }
+                results.append(dict)
+            return results
+
     class Property(ga4.LaunchGA4.Property):
         def __init__(self, parent):
             super().__init__(parent)
@@ -102,7 +117,7 @@ class Megaton(ga4.LaunchGA4):
             """Returns custom dimensions for the property."""
             response = self.parent.admin_client.management().customDimensions().list(
                 accountId=self.parent.account.id,
-                webPropertyId=self.parent.property.id
+                webPropertyId=self.id
             ).execute()
             results = []
             for i in response.get('items', []):
@@ -252,11 +267,40 @@ class Megaton(ga4.LaunchGA4):
             self.updated_time = i['updated_time']
             return i
 
+        @property
+        def goals(self):
+            """Get Goals"""
+            response = self.parent.admin_client.management().goals().list(
+                accountId=self.parent.account.id,
+                webPropertyId=self.parent.property.id,
+                profileId=self.id
+            ).execute()
+            results = []
+            for i in response.get('items', []):
+                dict = {
+                    'id': i.get('id'),
+                    'name': i.get('name'),
+                    'value': i.get('value'),
+                    'type': i.get('type'),
+                    'url_destination': i.get('urlDestinationDetails'),
+                    'time_on_site': i.get('visitTimeOnSiteDetails'),
+                    'pages_per_session': i.get('visitNumPagesDetails'),
+                    'event': i.get('eventDetails'),
+                    'created_time': i.get('created'),
+                    'updated_time': i.get('updated'),
+                    'active': i.get('active'),
+                }
+                results.append(dict)
+            return results
+
         def show(self, me: str = 'info', index_col: Optional[str] = None):
             res = None
             sort_values = []
             if me == 'info':
                 res = [self.get_info()]
+                index_col = 'id'
+            elif me == 'goals':
+                res = self.goals
                 index_col = 'id'
 
             if res:
