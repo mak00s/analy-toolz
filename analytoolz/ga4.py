@@ -174,11 +174,11 @@ class LaunchGA4(object):
                         'industry': IndustryCategory(i.industry_category).name,
                         'service_level': ServiceLevel(i.service_level).name,
                         'created_time': datetime.fromtimestamp(
-                            i.create_time.timestamp(),
+                            i.create_time.seconds,
                             pytz.timezone('Asia/Tokyo')
                         ),
                         'updated_time': datetime.fromtimestamp(
-                            i.update_time.timestamp(),
+                            i.update_time.seconds,
                             pytz.timezone('Asia/Tokyo')
                         )
                     }
@@ -495,6 +495,7 @@ class LaunchGA4(object):
             self.parent = parent
             self.start_date = '7daysAgo'
             self.end_date = 'yesterday'
+            self.segment = None
 
         def set_dates(self, start_date: str, end_date: str):
             self.start_date = start_date
@@ -707,6 +708,12 @@ class LaunchGA4(object):
             """Send request to get report data"""
             start_date = start_date if start_date else self.start_date
             end_date = end_date if end_date else self.end_date
+            if len(dimensions) > 9:
+                LOGGER.warn("Up to 9 dimensions are allowed.")
+                dimensions = dimensions[:9]
+            if len(metrics) > 10:
+                LOGGER.warn("Up to 9 dimensions are allowed.")
+                metrics = metrics[:10]
             LOGGER.info(f"Building a report ({start_date} - {end_date})")
 
             all_rows, offset, page = [], 0, 1
