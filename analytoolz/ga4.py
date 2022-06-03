@@ -173,14 +173,8 @@ class LaunchGA4(object):
                         'currency': i.currency_code,
                         'industry': IndustryCategory(i.industry_category).name,
                         'service_level': ServiceLevel(i.service_level).name,
-                        'created_time': datetime.fromtimestamp(
-                            i.create_time.seconds,
-                            pytz.timezone('Asia/Tokyo')
-                        ),
-                        'updated_time': datetime.fromtimestamp(
-                            i.update_time.seconds,
-                            pytz.timezone('Asia/Tokyo')
-                        )
+                        'created_time': convert_proto_datetime(i.create_time),
+                        'updated_time': convert_proto_datetime(i.update_time),
                     }
                     results.append(dict)
                 self.properties = results
@@ -550,19 +544,6 @@ class LaunchGA4(object):
                     filter=Filter()
                 )
             return
-
-        # def _response_to_dict(self, response: RunReportResponse):
-        #     dim_len = len(response.dimension_headers)
-        #     metric_len = len(response.metric_headers)
-        #     all_data = []
-        #     for row in response.rows:
-        #         row_data = {}
-        #         for i in range(0, dim_len):
-        #             row_data.update({response.dimension_headers[i].name: row.dimension_values[i].value})
-        #         for i in range(0, metric_len):
-        #             row_data.update({response.metric_headers[i].name: row.metric_values[i].value})
-        #         all_data.append(row_data)
-        #     return all_data
 
         def _convert_metric(self, value, type: str):
             """Metric's Value types for GA4 are
@@ -972,3 +953,15 @@ def convert_ga4_type_to_bq_type(type):
         return 'FLOAT'
     elif type == 'double':
         return 'FLOAT'
+
+def convert_proto_datetime(dt):
+    try:
+        return datetime.fromtimestamp(
+            dt.seconds,
+            pytz.timezone('Asia/Tokyo')
+        )
+    except:
+        return datetime.fromtimestamp(
+            dt.timestamp(),
+            pytz.timezone('Asia/Tokyo')
+        )
