@@ -2,6 +2,7 @@
 Common Functions
 """
 
+import os
 import pandas as pd
 
 
@@ -13,6 +14,12 @@ def is_integer(n):
         return False
     else:
         return float(n).is_integer()
+
+
+def append_suffix_to_filename(filename, suffix):
+    name, ext = os.path.splitext(filename)
+    ext = ext if ext else '.csv'
+    return f"{name}{suffix}{ext}"
 
 
 def change_column_type(df: pd.DataFrame, to_date=None, to_datetime=None):
@@ -45,6 +52,10 @@ def format_df(df: pd.DataFrame, rules: list):
             print(e)
             pass
 
+
+def save_df(df: pd.DataFrame, filename: str, format: str = 'CSV'):
+    """DataFrameを保存"""
+    df.to_csv(filename, index=False)
 
 def get_date_range(start_date: str, end_date: str, format: str = None):
     """Convert date range to a list of each date in the range"""

@@ -807,7 +807,7 @@ class LaunchGA4(object):
                     return all_rows, headers, types
 
         """
-        reports
+        pre-defined reports
         """
 
         def audit(self, dimension: str = 'eventName', metric: str = 'eventCount'):

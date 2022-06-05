@@ -8,7 +8,7 @@ import sys
 
 from google.api_core.exceptions import ServiceUnavailable
 
-from . import constants, errors, ga3, ga4, google_api, gsheet, widget
+from . import constants, errors, ga3, ga4, google_api, gsheet, utils, widget
 
 
 class Launch(object):
@@ -20,6 +20,12 @@ class Launch(object):
         self.ga_ver = None
         self.gs = None
         self.json = json
+        if 'google.colab' in sys.modules:
+            self.is_colab = True
+            from . import colabo
+            colabo.init()
+        else:
+            self.is_colab = False
         if json:
             self.auth()
 
@@ -35,6 +41,12 @@ class Launch(object):
 
         except Exception as e:
             raise e
+
+    def show(self, df):
+        """Display pandas DaraFrame as a table"""
+        if self.is_colab:
+            return colabo.table(df)
+        else:
 
     """Google Analytics
     """
@@ -71,6 +83,7 @@ class Launch(object):
             print("権限が付与されたGA4アカウントが見つかりません。")
 
     def select_ga4_dimensions_and_metrics(self):
+        """JupyterLab（Google Colaboratory）用にメニューを表示"""
         import panel as pn
 
         groups_dim = defaultdict(lambda: {})
@@ -138,20 +151,17 @@ class Launch(object):
             print("権限が付与されたGAアカウントが見つかりません。")
 
     def set_dates(self, date1, date2):
+        """レポート期間をセット"""
         if self.ga_ver == 3:
             self.ga3.report.set_dates(date1, date2)
         elif self.ga_ver == 4:
             self.ga4.report.set_dates(date1, date2)
-        print(f"レポート期間は{date1}〜{date2}")
+        print(f"GA{self.ga_ver}のレポート期間は{date1}〜{date2}")
 
-    def report(self,
-               dim: list,
-               met: list,
-               filter_d=None,
-               filter_m=None,
-               sort=None, **kwargs):
-        dimensions = [i for i in dim if i]
-        metrics = [i for i in met if i]
+    def report(self, d: list, m: list, filter_d=None, filter_m=None, sort=None, **kwargs):
+        """GA/GA4からデータを抽出"""
+        dimensions = [i for i in d if i]
+        metrics = [i for i in m if i]
         if self.ga_ver == 3:
             return self.ga3.report.show(
                 dimensions,
@@ -169,6 +179,22 @@ class Launch(object):
                 metric_filter=filter_m,
                 order_bys=sort,
             )
+
+    @property
+    def dates_as_string(self):
+        if self.ga_ver == 3:
+            start_date = self.ga3.report.start_date
+            end_date = self.ga3.report.end_date
+        elif self.ga_ver == 4:
+            start_date = self.ga4.report.start_date
+            end_date = self.ga4.report.end_date
+        return f"{start_date.replace('-', '')}-{end_date.replace('-', '')}"
+
+    def save(self, df: pd.DataFrame, filename: str, format: str = 'CSV'):
+        """データを保存：ファイル名に期間を付与。拡張子がなければ付与"""
+        new_filename = utils.append_suffix_to_filename(filename, f"_{self.dates_as_string}")
+        utils.save_df(df, new_filename)
+        print(f"CSVファイル{new_filename}を保存しました。")
 
     def analyze_content(self, sheet_name: str = '使い方'):
         """コンテンツ貢献度分析"""
