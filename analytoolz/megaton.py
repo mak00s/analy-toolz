@@ -7,9 +7,14 @@ import pandas as pd
 import sys
 
 from google.api_core.exceptions import ServiceUnavailable
+try:
+    import itables
+    itables.init_notebook_mode()
+except:
+    if 'google.colab' in sys.modules:
+        from . import colabo
 
 from . import constants, errors, ga3, ga4, google_api, gsheet, utils, widget
-
 
 class Launch(object):
     def __init__(self, json):
@@ -22,7 +27,6 @@ class Launch(object):
         self.json = json
         if 'google.colab' in sys.modules:
             self.is_colab = True
-            from . import colabo
             colabo.init()
         else:
             self.is_colab = False
@@ -46,7 +50,9 @@ class Launch(object):
         """Display pandas DaraFrame as a table"""
         if self.is_colab:
             return colabo.table(df)
-        else:
+        try:
+            itables.show(df)
+        except:
             display(df)
 
     """Google Analytics
