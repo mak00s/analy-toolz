@@ -27,6 +27,7 @@ from google.analytics.data_v1beta.types import Metadata
 from google.analytics.data_v1beta.types import Metric
 from google.analytics.data_v1beta.types import MetricAggregation
 from google.analytics.data_v1beta.types import MetricType
+from google.analytics.data_v1beta.types import NumericValue
 from google.analytics.data_v1beta.types import OrderBy
 from google.analytics.data_v1beta.types import RunReportRequest
 from google.analytics.data_v1beta.types import RunReportResponse
@@ -231,7 +232,7 @@ class LaunchGA4(object):
             self.metrics = None
 
         def _get_metadata(self):
-            """Returns available custom dimensions and custom metrics for the property."""
+            """Returns available dimensions and metrics for the property."""
             path = self.parent.data_client.metadata_path(self.id)
             try:
                 response = self.parent.data_client.get_metadata(name=path)
@@ -373,7 +374,7 @@ class LaunchGA4(object):
             new = []
             for m in self.api_metadata['dimensions']:
                 dict = m.copy()
-                if m['customized'] == True:
+                if m['customized']:
                     for c in self.api_custom_dimensions:
                         if m['display_name'] == c['display_name'] or m['display_name'] == c['parameter_name']:
                             dict['description'] = c['description']
@@ -495,55 +496,98 @@ class LaunchGA4(object):
             self.start_date = start_date
             self.end_date = end_date
 
-        def _format_name(self, before: str, which: str = 'dimensions'):
-            what = 'api_name'
-            dim = self.parent.property.api_metadata[which]
-            for r in dim:
-                if r['display_name'] == before:
-                    return r[what]
-                elif r['api_name'] == before:
-                    return r[what]
-            LOGGER.warn(f"{which[:-1]} {before} is not found.")
-            return None
+        def _format_name(self, name: str):
+            """Convert api_name or display_name of valid dimensions or metrics to an api_name
+            Args:
+                before [str] api_name or display_name
+            Returns:
+                api_name [str]
+                field_type: 'dimension' or 'metric'
+            """
+            what = 'api_name'  # field name to return
+            field_types = ['dimensions', 'metrics']
+            for type in field_types:
+                fields = self.parent.property.api_metadata[type]
+                for i in fields:
+                    if i['display_name'] == name:
+                        return i[what], type
+                    elif i['api_name'] == name:
+                        return i[what], type
+            LOGGER.warn(f"{name} is not a dimension or a metric.")
 
-        def _format_filter(self, conditions, logic=None):
-            if logic == 'AND':
-                return FilterExpression(
-                    and_group=FilterExpressionList(
-                        expressions=[
-                            FilterExpression(
-                                filter=Filter(
-                                    field_name="platform",
-                                    string_filter=Filter.StringFilter(
-                                        match_type=Filter.StringFilter.MatchType.EXACT,
-                                        value="Android",
-                                    ),
-                                )
-                            ),
-                        ]
+        def _parse_operator(self, operator: str, type: str):
+            """Convert legacy filters format from Core Reporting API v3 to Filter object"""
+            is_dimension = True if type.startswith('d') else False
+
+            if is_dimension:
+                if operator.endswith('='):
+                    return Filter.StringFilter.MatchType.EXACT
+                elif operator.endswith('~'):
+                    return Filter.StringFilter.MatchType.PARTIAL_REGEXP
+                else:
+                    return Filter.StringFilter.MatchType.CONTAINS
+            else:  # is metric
+                if operator.endswith('='):
+                    return Filter.NumericFilter.Operation.EQUAL
+                elif operator == '>':
+                    return Filter.NumericFilter.Operation.GREATER_THAN
+                elif operator == '<':
+                    return Filter.NumericFilter.Operation.LESS_THAN
+                return Filter.NumericFilter.Operation.OPERATION_UNSPECIFIED
+
+        def _parse_filter_condition(self, condition: str):
+            """Convert a single legacy filter format from Core Reporting API v3 to FilterExpression object"""
+            m = re.search(r'^(.+)(==|!=|=@|!@|=~|!~|>|<)(.+)$', condition)
+            if m:
+                field, type = self._format_name(m.groups()[0])
+                value = m.groups()[2]
+                op = m.groups()[1]
+                is_not = True if op.startswith('!') else False
+                operator = self._parse_operator(op, type)
+
+                if type == 'dimensions':
+                    filter = Filter(
+                        field_name=field,
+                        string_filter=Filter.StringFilter(
+                            match_type=operator,
+                            value=value,
+                        )
                     )
-                )
-            elif logic == 'OR':
-                return FilterExpression(
-                    or_group=FilterExpressionList(
-                        expressions=[
-                            FilterExpression(
-                                filter=Filter()
-                            ),
-                        ]
+                elif type == 'metrics':
+                    if utils.is_integer(value):
+                        value_class = NumericValue(int64_value=value)
+                    else:
+                        value_class = NumericValue(double_value=float(value))
+                    filter = Filter(
+                        field_name=field,
+                        numeric_filter=Filter.NumericFilter(
+                            operation=operator,
+                            value=value_class,
+                        )
                     )
-                )
-            elif logic == 'NOT':
-                return FilterExpression(
-                    not_expression=FilterExpression(
-                        filter=Filter()
+                if is_not:
+                    return FilterExpression(
+                        not_expression=FilterExpression(
+                            filter=filter
+                        )
                     )
-                )
+                else:
+                    return FilterExpression(filter=filter)
+
+        def _format_filter(self, conditions):
+            """Convert legacy filters format from Core Reporting API v3 to Filter object"""
+            if not conditions:
+                return
+
+            expressions = [self._parse_filter_condition(i) for i in conditions.split(';')]
+            if len(expressions) == 1:
+                return expressions[0]
             else:
                 return FilterExpression(
-                    filter=Filter()
+                    and_group=FilterExpressionList(
+                        expressions=expressions
+                    )
                 )
-            return
 
         def _convert_metric(self, value, type: str):
             """Metric's Value types for GA4 are
@@ -579,7 +623,78 @@ class LaunchGA4(object):
             else:
                 return value
 
+        def _format_order_bys(self, before: str):
+            """Convert legacy sort format from Core Reporting API v3 to OrderBy object"""
+            if not before:
+                print("NO ORDER BY FOUND")
+                return
+            result = []
+            for i in before.split(','):
+                try:
+                    _, field = i.split('-')
+                except ValueError:
+                    # Ascending
+                    field = i
+                    desc = False
+                else:
+                    # Descending
+                    desc = True
+                if self._format_name(field):
+                    # DIMENSION
+                    result.append(
+                        OrderBy(
+                            desc=desc,
+                            dimension=OrderBy.DimensionOrderBy(
+                                dimension_name=field
+                            )
+                        )
+                    )
+                elif self._format_name(field):
+                    # METRIC
+                    result.append(
+                        OrderBy(
+                            desc=desc,
+                            metric=OrderBy.MetricOrderBy(
+                                metric_name=field
+                            )
+                        )
+                    )
+                else:
+                    LOGGER.warn(f"ignoring unknown field '{field}'.")
+            return result
+
+        def _format_request(self, **kwargs):
+            """Construct a request for API"""
+            dimension_api_names = [self._format_name(r)[0] for r in kwargs.get('dimensions')]
+            metrics_api_names = [self._format_name(r)[0] for r in kwargs.get('metrics')]
+
+            metric_aggregations = []
+            if kwargs.get('show_total', False):
+                metric_aggregations = [
+                    MetricAggregation.TOTAL,
+                    MetricAggregation.MAXIMUM,
+                    MetricAggregation.MINIMUM,
+                ]
+
+            return RunReportRequest(
+                property=f"properties/{self.parent.property.id}",
+                date_ranges=[DateRange(
+                    start_date=kwargs.get('start_date'),
+                    end_date=kwargs.get('end_date')
+                )],
+                dimensions=[Dimension(name=d) for d in dimension_api_names],
+                dimension_filter=self._format_filter(kwargs.get('dimension_filter')),
+                metrics=[Metric(name=m) for m in metrics_api_names],
+                metric_filter=self._format_filter(kwargs.get('metric_filter')),
+                order_bys=self._format_order_bys(kwargs.get('order_bys')),
+                metric_aggregations=metric_aggregations,
+                limit=kwargs.get('limit'),
+            )
+
         def _parse_response(self, response: dict):
+            if not response:
+                return [], [], []
+
             all_data = []
             names = []
             dimension_types = []
@@ -608,49 +723,11 @@ class LaunchGA4(object):
 
             return all_data, names, dimension_types + metric_types
 
-        def _call_api(
-                self,
-                limit: int,
-                offset: int,
-                start_date,
-                end_date,
-                dimensions: list,
-                metrics: list,
-                dimension_filter=None,
-                metric_filter=None,
-                order_bys=None,
-                show_total: bool = False,
-        ):
-            dimension_api_names = [self._format_name(r) for r in dimensions]
-            metrics_api_names = [self._format_name(r, which='metrics') for r in metrics]
-            dimensions_ga4 = [Dimension(name=d) for d in dimension_api_names]
+        def _request_report_api(self, offset: int, request: dict):
+            if offset:
+                request["offset"] = offset
 
-            metrics_ga4 = [Metric(name=m) for m in metrics_api_names]
-
-            date_ranges = [DateRange(start_date=start_date, end_date=end_date)]
-
-            metric_aggregations = []
-            if show_total:
-                metric_aggregations = [
-                    MetricAggregation.TOTAL,
-                    MetricAggregation.MAXIMUM,
-                    MetricAggregation.MINIMUM,
-                ]
-
-            request = RunReportRequest(
-                property=f"properties/{self.parent.property.id}",
-                dimensions=dimensions_ga4,
-                metrics=metrics_ga4,
-                date_ranges=date_ranges,
-                dimension_filter=dimension_filter,
-                metric_filter=metric_filter,
-                order_bys=order_bys,
-                limit=limit,
-                offset=offset,
-            )
-
-            total_rows = 0
-            response = None
+            total_rows, response = 0, None
             try:
                 response = self.parent.data_client.run_report(request)
                 total_rows = response.row_count
@@ -673,41 +750,38 @@ class LaunchGA4(object):
 
             return data, total_rows, headers, types
 
-        def run(
-                self,
-                dimensions: list,
-                metrics: list,
-                start_date=None,
-                end_date=None,
-                dimension_filter=None,
-                metric_filter=None,
-                order_bys=None,
-                show_total: bool = False,
-                limit: int = 10000,
-                to_pd: bool = True,
-        ):
-            """Send request to get report data"""
-            start_date = start_date if start_date else self.start_date
-            end_date = end_date if end_date else self.end_date
+        def run(self, dimensions: list, metrics: list, to_pd: bool = True, **kwargs):
+            """Get Analytics report data"""
+            if not self.parent.property.id:
+                LOGGER.error("Propertyを先に選択してから実行してください。")
+                return
             if len(dimensions) > 9:
                 LOGGER.warn("Up to 9 dimensions are allowed.")
                 dimensions = dimensions[:9]
             if len(metrics) > 10:
                 LOGGER.warn("Up to 9 dimensions are allowed.")
                 metrics = metrics[:10]
-            LOGGER.info(f"Building a report ({start_date} - {end_date})")
+
+            start_date = kwargs.get('start_date', self.start_date)
+            end_date = kwargs.get('end_date', self.end_date)
+            LOGGER.info(f"Requesting a report ({start_date} - {end_date})")
+
+            request = self._format_request(
+                dimensions=dimensions,
+                metrics=metrics,
+                start_date=start_date,
+                end_date=end_date,
+                dimension_filter=kwargs.get('dimension_filter'),
+                metric_filter=kwargs.get('metric_filter'),
+                order_bys=kwargs.get('order_bys'),
+                show_total=False,
+                limit=kwargs.get('limit', 10000),
+            )
+            # print(request)
 
             all_rows, offset, page = [], 0, 1
             while True:
-                (data, total_rows, headers, types) = self._call_api(
-                    limit, offset,
-                    start_date, end_date,
-                    dimensions, metrics,
-                    dimension_filter=dimension_filter,
-                    metric_filter=metric_filter,
-                    order_bys=order_bys,
-                    show_total=show_total,
-                )
+                (data, total_rows, headers, types) = self._request_report_api(offset, request)
                 if len(data) > 0:
                     all_rows.extend(data)
                     if offset == 0:
@@ -825,53 +899,6 @@ class LaunchGA4(object):
             metrics = [
                 'eventCount',
             ]
-            # dimension_filter = FilterExpression(
-            #     filter=Filter(
-            #         field_name="eventName",
-            #         string_filter=Filter.StringFilter(value="page_view"),
-            #     )
-            # )
-            # dimension_filter = FilterExpression(
-            #     not_expression=FilterExpression(
-            #     filter=Filter(
-            #         field_name="eventName",
-            #         numeric_filter=Filter.NumericFilter(
-            #             operation=Filter.NumericFilter.Operation.GREATER_THAN,
-            #             value=NumericValue(int64_value=1000),
-            #         ),
-            #     )
-            #     )
-            # )
-            # dimension_filter = FilterExpression(
-            #     filter=Filter(
-            #         field_name="eventName",
-            #         in_list_filter=Filter.InListFilter(
-            #             values=[
-            #                 "purchase",
-            #                 "in_app_purchase",
-            #                 "app_store_subscription_renew",
-            #             ]
-            #         ),
-            #     )
-            # )
-            # dimension_filter = FilterExpression(
-            #     and_group=FilterExpressionList(
-            #         expressions=[
-            #             FilterExpression(
-            #                 filter=Filter(
-            #                     field_name="browser",
-            #                     string_filter=Filter.StringFilter(value="Chrome"),
-            #                 )
-            #             ),
-            #             FilterExpression(
-            #                 filter=Filter(
-            #                     field_name="countryId",
-            #                     string_filter=Filter.StringFilter(value="US"),
-            #                 )
-            #             ),
-            #         ]
-            #     )
-            # )
             order_bys = [
                 OrderBy(
                     desc=False,
