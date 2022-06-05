@@ -1,5 +1,6 @@
 """Megaton GA"""
 
+from collections import defaultdict
 from ipywidgets import interact
 from IPython.display import clear_output
 import pandas as pd
@@ -63,11 +64,38 @@ class Launch(object):
             def menu2_selected(value):
                 if value:
                     self.ga4.property.select(value)
-                    print(f"Property ID：{self.ga4.property.id}」、",
+                    print(f"　Property ID：{self.ga4.property.id}、",
                           f"作成日：{self.ga4.property.created_time.strftime('%Y-%m-%d')}")
                     self.ga_ver = 4
         else:
             print("権限が付与されたGA4アカウントが見つかりません。")
+
+    def select_ga4_dimensions_and_metrics(self):
+        import panel as pn
+
+        groups_dim = defaultdict(lambda: {})
+        groups_dim[' ディメンションを選択してください']['---'] = ''
+        for i in self.ga4.property.get_dimensions():
+            groups_dim[i['category']][i['display_name']] = i['api_name']
+
+        dim = pn.widgets.Select(
+            # name='Dimensions',
+            groups=groups_dim,
+            value='eventName'
+        )
+
+        groups_met = defaultdict(lambda: {})
+        groups_met[' 指標を選択してください']['---'] = ''
+        for i in self.ga4.property.get_metrics():
+            groups_met[i['category']][i['display_name']] = i['api_name']
+
+        met = pn.widgets.Select(
+            # name='Metrics',
+            groups=groups_met,
+            value='eventCount'
+        )
+
+        return dim, met
 
     def launch_ga(self):
         """GA (UA)の準備"""
@@ -125,7 +153,15 @@ class Launch(object):
         if self.ga_ver == 3:
             return self.ga3.report.run(*args)
         elif self.ga_ver == 4:
-            return self.ga4.report.run(d, m, dimension_filter=filter_d, metric_filter=filter_m,order_bys=order)
+            dim = [i for i in d if i]
+            met = [i for i in m if i]
+            return self.ga4.report.run(
+                dim,
+                met,
+                dimension_filter=filter_d,
+                metric_filter=filter_m,
+                order_bys=order
+            )
 
     def analyze_content(self, sheet_name: str = '使い方'):
         # 設定をシートから読み込む
