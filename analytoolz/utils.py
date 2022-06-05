@@ -5,6 +5,16 @@ Common Functions
 import pandas as pd
 
 
+def is_integer(n):
+    """Determine the provided string is an integer number"""
+    try:
+        float(n)
+    except ValueError:
+        return False
+    else:
+        return float(n).is_integer()
+
+
 def change_column_type(df: pd.DataFrame, to_date=None, to_datetime=None):
     """Change column type in dataframe from str to date or datetime"""
     if not to_date:
