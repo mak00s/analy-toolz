@@ -47,6 +47,7 @@ class Launch(object):
         if self.is_colab:
             return colabo.table(df)
         else:
+            display(df)
 
     """Google Analytics
     """
