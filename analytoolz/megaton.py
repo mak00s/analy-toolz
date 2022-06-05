@@ -201,7 +201,13 @@ class Launch(object):
         """データを保存：ファイル名に期間を付与。拡張子がなければ付与"""
         new_filename = utils.append_suffix_to_filename(filename, f"_{self.dates_as_string}")
         utils.save_df(df, new_filename)
-        print(f"CSVファイル{new_filename}を保存しました。")
+        # print(f"CSVファイル{new_filename}を保存しました。")
+        return new_filename
+
+    def download(self, df: pd.DataFrame, filename: str):
+        """データを保存し、Colabからダウンロード"""
+        new_filename = self.save(df, filename)
+        colabo.download(new_filename)
 
     def analyze_content(self, sheet_name: str = '使い方'):
         """コンテンツ貢献度分析"""
