@@ -349,8 +349,6 @@ class LaunchGA4(object):
             self.name = dict['name']
             self.created_time = dict['created_time']
             self.updated_time = dict['updated_time']
-            self.time_zone = dict.get('time_zone', '')
-            self.currency = dict.get('currency', '')
             self.industry = dict['industry']
             self.service_level = dict['service_level']
             self.data_retention = dict.get('data_retention', '')
@@ -359,6 +357,8 @@ class LaunchGA4(object):
                 dict2 = self._get_data_retention()
                 dict['data_retention'] = dict2['data_retention']
                 dict['data_retention_reset_on_activity'] = dict2['reset_user_data_on_new_activity']
+            self.time_zone = dict.get('time_zone', None)  # GA4 only
+            self.currency = dict.get('currency', None)  # GA4 only
             return dict
 
         def get_available(self):
@@ -463,13 +463,7 @@ class LaunchGA4(object):
                     return pd.DataFrame(res).sort_values(by=sort_values)
             return pd.DataFrame()
 
-        def create_custom_dimension(
-                self,
-                parameter_name: str,
-                display_name: str,
-                description: str,
-                scope: str = 'EVENT'
-        ):
+        def create_custom_dimension(self, parameter_name: str, display_name: str, description: str, scope: str = 'EVENT'):
             """Create custom dimension for the property."""
             try:
                 created_cd = self.parent.admin_client.create_custom_dimension(
@@ -624,10 +618,10 @@ class LaunchGA4(object):
                 return value
 
         def _format_order_bys(self, before: str):
-            """Convert legacy sort format from Core Reporting API v3 to OrderBy object"""
+            """Convert legacy sort format from Core Reporting API v3 to a list of OrderBy object"""
             if not before:
-                print("NO ORDER BY FOUND")
                 return
+
             result = []
             for i in before.split(','):
                 try:
@@ -755,11 +749,12 @@ class LaunchGA4(object):
             if not self.parent.property.id:
                 LOGGER.error("Propertyを先に選択してから実行してください。")
                 return
+
             if len(dimensions) > 9:
                 LOGGER.warn("Up to 9 dimensions are allowed.")
                 dimensions = dimensions[:9]
             if len(metrics) > 10:
-                LOGGER.warn("Up to 9 dimensions are allowed.")
+                LOGGER.warn("Up to 10 dimensions are allowed.")
                 metrics = metrics[:10]
 
             start_date = kwargs.get('start_date', self.start_date)

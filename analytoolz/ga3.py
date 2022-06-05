@@ -110,6 +110,10 @@ class Megaton(ga4.LaunchGA4):
             super().__init__(parent)
             self.views = None
 
+        def _clear(self):
+            super()._clear()
+            self.views = None
+
         def _get_metadata(self):
             return {'dimensions': [], 'metrics': []}
 
@@ -148,24 +152,10 @@ class Megaton(ga4.LaunchGA4):
                 results.append(dict)
             return results
 
-        def get_dimensions(self):
-            if not self.api_custom_dimensions:
-                self.api_custom_dimensions = self._get_custom_dimensions()
-            return self.api_custom_dimensions
-
-        def get_metrics(self):
-            if not self.api_custom_metrics:
-                self.api_custom_metrics = self._get_custom_metrics()
-            return self.api_custom_metrics
-
-        def _clear(self):
-            super()._clear()
-            self.views = None
-
         def _update(self):
             self._clear()
             self.get_info()
-            # self.get_available()
+            # self.get_available()  # Metadata API is not implemented
 
             # get views
             response = self.parent.admin_client.management().profiles().list(
@@ -191,7 +181,19 @@ class Megaton(ga4.LaunchGA4):
                 }
                 results.append(dict)
             self.views = results
-            return results
+            # return results
+
+        def get_dimensions(self):
+            """Get custom dimension settings"""
+            if not self.api_custom_dimensions:
+                self.api_custom_dimensions = self._get_custom_dimensions()
+            return self.api_custom_dimensions
+
+        def get_metrics(self):
+            """Get custom metrics settings"""
+            if not self.api_custom_metrics:
+                self.api_custom_metrics = self._get_custom_metrics()
+            return self.api_custom_metrics
 
         def show(self, me: str = 'info', index_col: Optional[str] = None):
             res = None
@@ -312,79 +314,106 @@ class Megaton(ga4.LaunchGA4):
 
     class Report(ga4.LaunchGA4.Report):
 
-        def _format_name(self, before: str, as_: str = None):
-            after = ("ga:" + before) if not before.startswith("ga:") else before
-            if as_ == 'dimension':
-                return {'name': after}
-            elif as_ == 'metric':
-                return {'expression': after, 'alias': before}
+        def _format_name(self, name: str, type: str = None):
+            """Convert api_name to an object for request and OrderBy"""
+            after = ("ga:" + name) if not name.startswith("ga:") else name
+            if type == 'dimension':
+                # Dimension object in ReportRequest
+                return {
+                    'name': after,
+                }
+            elif type == 'metric':
+                # Metric object in ReportRequest
+                return {
+                    'expression': after,
+                    'alias': name,
+                }
             else:
+                # simple api_name for OrderBy in ReportRequest, etc
                 return after
 
-        def _parse_filter(self, before: str):
-            m = re.search(r'^(.+)(==|!=|=@|!@|=~|!~|>|<)(.+)$', before)
+        def _parse_operator(self, operator: str, type: str):
+            """Convert a string to legacy filter operator from Core Reporting API v3"""
+            is_dimension = True if type.startswith('d') else False
+
+            if is_dimension:
+                if operator.endswith('='):
+                    return 'EXACT'
+                elif operator.endswith('~'):
+                    return 'REGEXP'
+                return 'PARTIAL'
+            else:  # is metric
+                if operator.endswith('='):
+                    return 'EQUAL'
+                elif operator == '>':
+                    return 'GREATER_THAN'
+                elif operator == '<':
+                    return 'LESS_THAN'
+
+        def _parse_filter_condition(self, condition: str, **kwargs):
+            """Split a string into name, operator and value
+            Operator:
+                == : Equals
+                != : Does not equal
+                =@ : Contains substring
+                !@ : Does not contain substring
+                =~ : Contains a match for the regular expression
+                !~ : Does not match regular expression
+                > : Greater than
+                < : Less than
+            """
+            m = re.search(r'^(.+)(==|!=|=@|!@|=~|!~|>|<)(.+)$', condition)
             if m:
                 field = self._format_name(m.groups()[0])
+                type = kwargs.get('type')
                 value = m.groups()[2]
                 op = m.groups()[1]
                 is_not = True if op.startswith('!') else False
-                operator = 'PARTIAL'
-                if op.endswith('='):
-                    operator = 'EXACT'
-                elif op.endswith('~'):
-                    operator = 'REGEXP'
-                elif op == '>':
-                    operator = 'GREATER_THAN'
-                elif op == '<':
-                    operator = 'LESS_THAN'
-                return is_not, operator, field, value
+                operator = self._parse_operator(op, type)
 
-        def _format_dimension_filter(self, before: str):
-            if not before:
-                return []
-            clause = {'operator': 'AND', 'filters': []}
-            for i in before.split(';'):
-                is_not, operator, field, value = self._parse_filter(i)
-                filter = {
-                    'dimensionName': field,
-                    'not': is_not,
-                    'operator': operator,
-                    'expressions': [value],
-                    'caseSensitive': False
-                }
-                clause['filters'].append(filter)
-            return [clause]
-
-        def _format_metric_filter(self, before: str):
-            if not before:
-                return []
-            clause = {'operator': 'AND', 'filters': []}
-            for i in before.split(';'):
-                try:
-                    is_not, operator, field, value = self._parse_filter(i)
-                    filter = {
+                if type == 'dimensions':
+                    return {
+                        'dimensionName': field,
+                        'not': is_not,
+                        'operator': operator,
+                        'expressions': [value],
+                        'caseSensitive': False
+                    }
+                elif type == 'metrics':
+                    return {
                         'metricName': field,
                         'not': is_not,
                         'operator': operator,
                         'comparisonValue': value
                     }
-                    clause['filters'].append(filter)
-                except TypeError:
-                    LOGGER.warn("metric filter is invalid. ignoring...")
-            return [clause]
+
+        def _format_filter(self, conditions: str, type='dimensions'):
+            """Convert legacy filters format from Core Reporting API v3 to DimensionFilterClause or MetricFilterClause object"""
+            if not conditions:
+                return []
+
+            filters = [self._parse_filter_condition(i, type=type) for i in conditions.split(';')]
+            return [{
+                'operator': 'AND',
+                'filters': filters
+            }]
 
         def _format_order_bys(self, before: str):
+            """Convert legacy sort format from Core Reporting API v3 to a list of OrderBy object"""
             if not before:
                 return
+
             result = []
             for i in before.split(','):
                 obj = {}
                 try:
                     _, field = i.split('-')
                 except ValueError:
+                    # Ascending
                     obj['fieldName'] = self._format_name(i)
                     obj['sortOrder'] = 'ASCENDING'
                 else:
+                    # Descending
                     obj['fieldName'] = self._format_name(field)
                     obj['sortOrder'] = 'DESCENDING'
                 result.append(obj)
@@ -392,8 +421,9 @@ class Megaton(ga4.LaunchGA4):
 
         def _format_request(self, **kwargs):
             """Construct a request for API"""
-            dimension_api_names = [self._format_name(r, as_='dimension') for r in kwargs.get('dimensions')]
-            metrics_api_names = [self._format_name(r, as_='metric') for r in kwargs.get('metrics')]
+            dimension_api_names = [self._format_name(r, type='dimension') for r in kwargs.get('dimensions')]
+            metrics_api_names = [self._format_name(r, type='metric') for r in kwargs.get('metrics')]
+
             return {
                 'viewId': self.parent.view.id,
                 'dateRanges': [{
@@ -402,9 +432,9 @@ class Megaton(ga4.LaunchGA4):
                 }],
                 'samplingLevel': 'LARGE',
                 'dimensions': dimension_api_names,
-                'dimensionFilterClauses': self._format_dimension_filter(kwargs.get('dimension_filter')),
+                'dimensionFilterClauses': self._format_filter(kwargs.get('dimension_filter'), type='dimensions'),
                 'metrics': metrics_api_names,
-                'metricFilterClauses': self._format_metric_filter(kwargs.get('metric_filter')),
+                'metricFilterClauses': self._format_filter(kwargs.get('metric_filter'), type='metrics'),
                 'orderBys': self._format_order_bys(kwargs.get('order_bys')),
                 'segments': kwargs.get('segments'),
                 'includeEmptyRows': False,
@@ -438,11 +468,9 @@ class Megaton(ga4.LaunchGA4):
 
             return all_data, names, dimension_types + metric_types
 
-        def _request_report_api(self, limit: int, token: str, request: dict):
-
-            request["pageSize"] = limit
-            if token:
-                request["pageToken"] = token
+        def _request_report_api(self, offset: str, request: dict):
+            if offset:
+                request["pageToken"] = offset
 
             # try:
             response = self.parent.data_client.reports().batchGet(
@@ -462,7 +490,6 @@ class Megaton(ga4.LaunchGA4):
             #         raise e
 
             report_data = response.get('reports', [])[0]
-
             total_rows = report_data['data'].get('rowCount', 0)
 
             samples_count = report_data['data'].get('samplesReadCounts')
@@ -473,15 +500,11 @@ class Megaton(ga4.LaunchGA4):
             if samples_size:
                 LOGGER.warn(f"samplingSpaceSizes = {samples_size}")
 
-            # try:
             data, headers, types = self._parse_response(report_data)
-            # except:
-            #     print(report_data)
-            #     raise
 
             return data, total_rows, headers, types, next_token
 
-        def _report_generator(self, request: dict, limit: int = 10000):
+        def _report_generator(self, request: dict):
             """Send request to get report data"""
             if not self.parent.view.id:
                 # LOGGER.error("Viewを先に選択してから実行してください。")
@@ -490,16 +513,14 @@ class Megaton(ga4.LaunchGA4):
             token = "0"
             while True:
                 try:
-                    (data, total_rows, headers, types, next_token) = self._request_report_api(limit, token, request)
+                    (data, total_rows, headers, types, next_token) = self._request_report_api(token, request)
                 except err.HttpError as e:
                     value = str(sys.exc_info()[1])
                     if 'disabled' in value:
                         LOGGER.error("\nGCPのプロジェクトでAnalytics Reporting APIを有効化してください。")
-                        # return
                         raise errors.ApiDisabled
                     elif 'Invalid value' in value:
                         LOGGER.error("レポート抽出条件の書式や内容を見直してください。")
-                        # return
                         raise errors.BadRequest
                     else:
                         raise e
@@ -509,7 +530,6 @@ class Megaton(ga4.LaunchGA4):
 
                     if total_rows == 10001:
                         if [d for d in request['dimensions'] if d['name'] == 'ga:clientId']:
-                            # print("!! The returned data might be restricted.")
                             LOGGER.info("clientId is not officially supported by Google. Using this dimension in an "
                                         "Analytics report may thus result in unexpected & unexplainable behavior ("
                                         "such as restricting the report to exactly 10,000 or 10,001 rows).")
@@ -536,6 +556,14 @@ class Megaton(ga4.LaunchGA4):
             if not self.parent.view.id:
                 LOGGER.error("Viewを先に選択してから実行してください。")
                 return
+
+            if len(dimensions) > 7:
+                LOGGER.warn("Up to 7 dimensions are allowed.")
+                dimensions = dimensions[:7]
+            if len(metrics) > 10:
+                LOGGER.warn("Up to 10 dimensions are allowed.")
+                metrics = metrics[:10]
+
             start_date = kwargs.get('start_date', self.start_date)
             end_date = kwargs.get('end_date', self.end_date)
             LOGGER.info(f"Requesting a report ({start_date} - {end_date})")
@@ -547,14 +575,14 @@ class Megaton(ga4.LaunchGA4):
                 end_date=end_date,
                 dimension_filter=kwargs.get('dimension_filter'),
                 metric_filter=kwargs.get('metric_filter'),
-                order_bys=kwargs.get('order'),
+                order_bys=kwargs.get('order_bys'),
                 segments=kwargs.get('segments'),
                 show_total=False,
-                limit=kwargs.get('limit'),
+                limit=kwargs.get('limit', 10000),
             )
             # print(request)
 
-            iterator = self._report_generator(request, kwargs.get('limit', 10000))
+            iterator = self._report_generator(request)
 
             if return_generator:
                 return iterator
@@ -574,7 +602,7 @@ class Megaton(ga4.LaunchGA4):
                         request['dateRanges'][0]['startDate'] = date
                         request['dateRanges'][0]['endDate'] = date
                         request['pageToken'] = "0"
-                        iterator = self._report_generator(request, kwargs.get('limit', 10000))
+                        iterator = self._report_generator(request)
                         data = list(iterator)
                         LOGGER.debug(f"{len(data)} rows")
                         all_data.extend(data)
@@ -610,7 +638,7 @@ def cid_date_page(ga3, include_domains=None, include_pages=None, exclude_pages=N
                 'exits',
             ],
             metric_filter='uniquePageviews>0',
-            order='clientId,pagePath,date,sessionCount',
+            order_bys='clientId,pagePath,date,sessionCount',
             # return_generator=True
             limit=10000)
     except errors.BadRequest as e:
@@ -624,6 +652,9 @@ def cid_date_page(ga3, include_domains=None, include_pages=None, exclude_pages=N
                 'pagePath': 'page',
                 'uniquePageviews': 'sessions',
             })
+        else:
+            print("no data")
+            return df
 
 
 def to_page_cid(_df: pd.DataFrame):
@@ -660,7 +691,7 @@ def cid_last_returned_date(ga3):
         metrics=[
             'entrances',
         ],
-        order='ga:clientId,ga:date',
+        order_bys='ga:clientId,ga:date',
     )
 
     # 人単位でまとめて最後に訪問した日を算出
@@ -706,9 +737,10 @@ def cv_cid(ga3, include_pages=None, metric_filter='ga:entrances<1'):
             'users',
         ],
         metric_filter=metric_filter,
-        order='ga:pagePath,ga:clientId,ga:date',
-    ).drop(['users'], axis=1)
-    return _df
+        order_bys='pagePath,clientId,date',
+    )
+    if len(_df):
+        return _df.drop(['users'], axis=1)
 
 
 def to_cid_last_cv(df):

@@ -145,25 +145,33 @@ class Launch(object):
         print(f"レポート期間は{date1}〜{date2}")
 
     def report(self,
-               d: list,
-               m: list,
+               dim: list,
+               met: list,
                filter_d=None,
                filter_m=None,
-               order=None):
+               sort=None, **kwargs):
+        dimensions = [i for i in dim if i]
+        metrics = [i for i in met if i]
         if self.ga_ver == 3:
-            return self.ga3.report.run(*args)
-        elif self.ga_ver == 4:
-            dim = [i for i in d if i]
-            met = [i for i in m if i]
-            return self.ga4.report.run(
-                dim,
-                met,
+            return self.ga3.report.show(
+                dimensions,
+                metrics,
                 dimension_filter=filter_d,
                 metric_filter=filter_m,
-                order_bys=order
+                order_bys=sort,
+                segments=kwargs.get('segments'),
+            )
+        elif self.ga_ver == 4:
+            return self.ga4.report.run(
+                dimensions,
+                metrics,
+                dimension_filter=filter_d,
+                metric_filter=filter_m,
+                order_bys=sort,
             )
 
     def analyze_content(self, sheet_name: str = '使い方'):
+        """コンテンツ貢献度分析"""
         # 設定をシートから読み込む
         if self.select_sheet(sheet_name):
             # 設定を読み込む
@@ -176,6 +184,9 @@ class Launch(object):
 
             # 元データ抽出：コンテンツ閲覧者
             _df = ga3.cid_date_page(self.ga3, include_domains, include_pages, exclude_pages, page_regex)
+            if not len(_df):
+                print("データがありません。")
+                return
 
             # Pageと人でまとめて回遊を算出
             df = ga3.to_page_cid(_df)
