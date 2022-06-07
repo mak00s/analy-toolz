@@ -17,7 +17,7 @@ from . import errors, utils
 LOGGER = logging.getLogger(__name__)
 
 
-class LaunchGS(object):
+class MegatonGS(object):
     """Google Sheets client
     """
     required_scopes = [

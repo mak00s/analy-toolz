@@ -231,7 +231,7 @@ class Launch(object):
     def launch_gs(self, url):
         """APIでGoogle Sheetsにアクセスする準備"""
         try:
-            self.gs = gsheet.LaunchGS(self.creds, url)
+            self.gs = gsheet.MegatonGS(self.creds, url)
         except errors.BadCredentialFormat:
             print("認証情報のフォーマットが正しくないため、Google Sheets APIを利用できません。")
         except errors.BadCredentialScope:
@@ -315,14 +315,15 @@ class Launch(object):
                     self.conf['cv_pages'] = self.parent.load_cell(26, 5)
                     self.conf['page_regex'] = self.parent.load_cell(29, 5)
                     self.conf['title_regex'] = self.parent.load_cell(32, 5)
-                self.conf['metrics'] = [i for i in ['cv','m1','m2','m3','m4','m5'] if self.conf[f'{i}_pages']]
+                self.conf['metrics'] = [i for i in ['cv', 'm1', 'm2', 'm3', 'm4', 'm5'] if self.conf[f'{i}_pages']]
 
         def _get_page_cid(self):
             """対象コンテンツが閲覧されたcidを得る"""
             if self.parent.ga_ver == 3:
                 # 元データ抽出：対象pageが閲覧されたcidとdate
+                print("...データを抽出します")
                 _df = ga3.get_cid_date_page(self.parent.ga3, self.conf)
-                print(f"（{len(_df)}行の元データを抽出...）")
+                print(f"...{len(_df)}行のデータを抽出しました")
 
                 # pageとcidでまとめる
                 df = _df.groupby(['page', 'clientId']).agg({
@@ -338,6 +339,7 @@ class Launch(object):
 
                 # 回遊を算出
                 df['kaiyu'] = df.apply(lambda x: 0 if x['sessions'] == 1 & x['exits'] == 1 else 1, axis=1)
+                print("...閲覧後の回遊の指標を算出しました")
                 return df
 
         def _add_return_to_page_cid(self):
@@ -357,7 +359,6 @@ class Launch(object):
                     lambda x: 1 if (x['last_visit_date'] != '') & (
                             x['last_visit_date'] != x['first_visit_date']) else 0, axis=1)
 
-                print("（再訪問の指標を追加...）")
                 return df.drop(['last_visit_date'], inplace=False, axis=1)
 
         def _add_cv_to_page_cid(self, cv_pages, cv_label: str = 'cv'):
@@ -374,11 +375,7 @@ class Launch(object):
                 }, inplace=True)
 
                 # コンテンツ閲覧後のCVを判定
-                df2 = pd.merge(
-                    self.data['page_cid'],
-                    df,
-                    how='left',
-                    on='clientId')
+                df2 = pd.merge(self.data['page_cid'], df, how='left', on='clientId')
 
                 def calc_new_col(row):
                     if row[f'last_{cv_label}_date']:
@@ -391,10 +388,9 @@ class Launch(object):
 
                 df2[cv_label] = df2.fillna(0).apply(calc_new_col, axis=1)
 
-                print(f"（{cv_label}の指標を追加...）")
                 return df2.drop([f'last_{cv_label}_date', f'last_{cv_label}_session_count'], inplace=False, axis=1)
 
-        def _group_by_page(self, df, cv_label: str = 'cv'):
+        def _group_by_page(self, df):
             """Page単位でまとめる"""
             if self.parent.ga_ver == 3:
                 d = {
@@ -402,10 +398,10 @@ class Launch(object):
                     'entrances': 'sum',
                     'kaiyu': 'sum',
                     'returns': 'sum',
-                    # cv_label: 'sum',
                 }
                 for i in self.conf['metrics']:
                     d[i] = 'sum'
+
                 _df = df.groupby('page').agg(d).reset_index().sort_values('clientId', ascending=False)
 
                 c = {
@@ -413,7 +409,6 @@ class Launch(object):
                     'entrances': 'entry_users',
                     'kaiyu': 'kaiyu_users',
                     'returns': 'return_users',
-                    # cv_label: f'{cv_label}_users',
                 }
                 for i in self.conf['metrics']:
                     c[i] = f'{i}_users'
@@ -427,11 +422,7 @@ class Launch(object):
                 # 元データ抽出：タイトル
                 _df = ga3.get_page_title(self.parent.ga3, self.conf)
 
-                df = pd.merge(
-                    self.data['page'],
-                    _df,
-                    how='left',
-                    on='page')
+                df = pd.merge(self.data['page'], _df, how='left', on='page')
 
                 return df
 
@@ -453,8 +444,10 @@ class Launch(object):
 
             # 指標を算出する
             self.data['page_cid'] = self._add_return_to_page_cid()
+            print("...再訪問の指標を追加しました")
             for i in self.conf['metrics']:
                 self.data['page_cid'] = self._add_cv_to_page_cid(self.conf[f'{i}_pages'], i)
+                print(f"...{i}の指標を追加しました")
 
             # pageでまとめる
             self.data['page'] = self._group_by_page(
@@ -463,6 +456,7 @@ class Launch(object):
 
             # タイトルを追加する
             self.data['page'] = self._add_title_to_page()
+            print("...ページタイトルを追加しました")
 
             # 順番を並び替える
             columns = ['page', 'title', 'users', 'entry_users', 'kaiyu_users', 'return_users']
@@ -485,13 +479,3 @@ class Launch(object):
                     self.parent.gs.sheet.resize(col=2, width=300)
                     self.parent.gs.sheet.freeze(rows=1)
                     print(f"レポートのデータを上書き保存しました。")
-
-    def save_content_analysis_to_gs(self, df, sheet_name: str = '_cont'):
-        """OLD"""
-        if self.select_sheet(sheet_name):
-            if self.gs.sheet.overwrite_data(df, include_index=False):
-                self.gs.sheet.auto_resize(cols=[2, 3, 4, 5, 6, 7])
-                self.gs.sheet.resize(col=1, width=300)
-                self.gs.sheet.resize(col=2, width=300)
-                self.gs.sheet.freeze(rows=1)
-                print(f"レポートのデータを上書き保存しました。")
