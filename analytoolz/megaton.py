@@ -40,7 +40,7 @@ class Launch(object):
         """GCS認証"""
         self.creds = google_api.get_credentials(self.json, constants.DEFAULT_SCOPES)
         try:
-            self.ga4 = ga4.LaunchGA4(self.creds)
+            self.ga4 = ga4.MegatonGA4(self.creds)
         except ServiceUnavailable:
             if 'invalid_grant' in str(sys.exc_info()[1]):
                 print(f"期限が切れたようなので、もう一度認証します。")
@@ -68,7 +68,7 @@ class Launch(object):
 
     def launch_ga4(self):
         """GA4の準備"""
-        self.ga4 = ga4.LaunchGA4(self.creds)
+        self.ga4 = ga4.MegatonGA4(self.creds)
         self.select_ga4_property()
 
     def select_ga4_property(self):
@@ -128,7 +128,7 @@ class Launch(object):
 
     def launch_ga(self):
         """GA (UA)の準備"""
-        self.ga3 = ga3.LaunchUA(self.creds, credential_cache_file=google_api.get_cache_filename_from_json(self.json))
+        self.ga3 = ga3.MegatonUA(self.creds, credential_cache_file=google_api.get_cache_filename_from_json(self.json))
         self.select_ga3_view()
 
     def select_ga3_view(self):
@@ -210,16 +210,17 @@ class Launch(object):
     """Download
     """
 
-    def save(self, df: pd.DataFrame, filename: str):
+    def save(self, df: pd.DataFrame, filename: str, quiet: bool = None):
         """データを保存：ファイル名に期間を付与。拡張子がなければ付与"""
         new_filename = utils.append_suffix_to_filename(filename, f"_{self.dates_as_string}")
         utils.save_df(df, new_filename)
-        # print(f"CSVファイル{new_filename}を保存しました。")
+        if not quiet:
+            print(f"CSVファイル{new_filename}を保存しました。")
         return new_filename
 
     def download(self, df: pd.DataFrame, filename: str):
         """データを保存し、Colabからダウンロード"""
-        new_filename = self.save(df, filename)
+        new_filename = self.save(df, filename, quiet=True)
         colabo.download(new_filename)
 
     """Google Sheets

@@ -17,7 +17,7 @@ from . import constants, errors, ga4, google_api, utils
 LOGGER = logging.getLogger(__name__)
 
 
-class LaunchUA(ga4.LaunchGA4):
+class MegatonUA(ga4.MegatonGA4):
     this = "Megaton UA"
 
     def __init__(self, credentials: Credentials, **kwargs):
@@ -69,7 +69,7 @@ class LaunchUA(ga4.LaunchGA4):
             self.accounts = results
             return results
 
-    class Account(ga4.LaunchGA4.Account):
+    class Account(ga4.MegatonGA4.Account):
         def _update(self):
             response = self.parent.admin_client.management().webproperties().list(
                 accountId=self.id).execute()
@@ -105,7 +105,7 @@ class LaunchUA(ga4.LaunchGA4):
                 results.append(dict)
             return results
 
-    class Property(ga4.LaunchGA4.Property):
+    class Property(ga4.MegatonGA4.Property):
         def __init__(self, parent):
             super().__init__(parent)
             self.views = None
@@ -312,7 +312,7 @@ class LaunchUA(ga4.LaunchGA4):
                     return pd.DataFrame(res).sort_values(by=sort_values)
             return pd.DataFrame()
 
-    class Report(ga4.LaunchGA4.Report):
+    class Report(ga4.MegatonGA4.Report):
 
         def _format_name(self, name: str, type: str = None):
             """Convert api_name to an object for request and OrderBy"""

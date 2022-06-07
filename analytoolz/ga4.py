@@ -42,7 +42,7 @@ from . import errors, google_api, utils
 LOGGER = logging.getLogger(__name__)
 
 
-class LaunchGA4(object):
+class MegatonGA4(object):
     this = "Megaton GA4"
     required_scopes = [
         'https://www.googleapis.com/auth/analytics.edit',
@@ -681,6 +681,8 @@ class LaunchGA4(object):
                 metric_filter=self._format_filter(kwargs.get('metric_filter')),
                 order_bys=self._format_order_bys(kwargs.get('order_bys')),
                 metric_aggregations=metric_aggregations,
+                keep_empty_rows=True,
+                return_property_quota=False,
                 limit=kwargs.get('limit'),
             )
 
