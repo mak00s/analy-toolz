@@ -681,7 +681,7 @@ class MegatonGA4(object):
                 metric_filter=self._format_filter(kwargs.get('metric_filter')),
                 order_bys=self._format_order_bys(kwargs.get('order_bys')),
                 metric_aggregations=metric_aggregations,
-                keep_empty_rows=True,
+                keep_empty_rows=False,
                 return_property_quota=False,
                 limit=kwargs.get('limit'),
             )

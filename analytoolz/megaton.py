@@ -216,7 +216,9 @@ class Launch(object):
         utils.save_df(df, new_filename)
         if not quiet:
             print(f"CSVファイル{new_filename}を保存しました。")
-        return new_filename
+            return
+        else:
+            return new_filename
 
     def download(self, df: pd.DataFrame, filename: str):
         """データを保存し、Colabからダウンロード"""
