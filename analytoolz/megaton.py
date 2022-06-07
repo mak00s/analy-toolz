@@ -390,6 +390,7 @@ class Launch(object):
                     df2[cv_label] = df2.fillna(0).apply(calc_new_col, axis=1)
                     return df2.drop([f'last_{cv_label}_date', f'last_{cv_label}_session_count'], inplace=False, axis=1)
                 else:
+                    df2 = self.data['page_cid']
                     df2[cv_label] = 0
                     return df2
 

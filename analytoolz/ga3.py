@@ -703,6 +703,8 @@ def get_no_entrance_cv_cid(ga3, include_pages=None, metric_filter: str = 'ga:ent
     )
     if len(_df):
         return _df.drop(['users'], axis=1)
+    else:
+        return pd.DataFrame()
 
 
 def get_page_title(ga3, conf: dict):
