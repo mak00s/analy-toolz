@@ -61,12 +61,12 @@ class GoogleApi(object):
         """
         try:
             return service_method.execute(num_retries=retry_count)
-        except errors.HttpError as error:
-            code = error.resp.get('code')
+        except errors.HttpError as e:
+            code = e.resp.get('code')
             reason = ''
             message = ''
             try:
-                data = json.loads(error.content.decode('utf-8'))
+                data = json.loads(e.content.decode('utf-8'))
                 code = data['error']["code"]
                 message = data['error']['message']
                 reason = data['error']['errors'][0]['reason']
@@ -81,7 +81,7 @@ class GoogleApi(object):
                 self.log.error(message)
                 raise
             else:
-                self.log.warn("got http error {} ({}): {}".format(code, reason, message))
+                self.log.warn(f"got HttpError (content={data}")
                 raise
         except BrokenPipeError:
             self.log.info("BrokenPipeError occurred but attempting to retry")

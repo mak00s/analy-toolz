@@ -7,8 +7,10 @@ import pandas as pd
 import sys
 
 from google.api_core.exceptions import ServiceUnavailable
+
 try:
     import itables
+
     itables.init_notebook_mode()
 except:
     if 'google.colab' in sys.modules:
@@ -16,20 +18,21 @@ except:
 
 from . import constants, errors, ga3, ga4, google_api, gsheet, utils, widget
 
+
 class Launch(object):
     def __init__(self, json):
         """constructor"""
+        self.json = json
         self.creds = None
+        self.ga_ver = None
         self.ga3 = None
         self.ga4 = None
-        self.ga_ver = None
         self.gs = None
-        self.json = json
+        self.is_colab = False
+        self.content_analysis = None
         if 'google.colab' in sys.modules:
             self.is_colab = True
             colabo.init()
-        else:
-            self.is_colab = False
         if json:
             self.auth()
 
@@ -55,18 +58,24 @@ class Launch(object):
         except:
             display(df)
 
+    @staticmethod
+    def clear():
+        """Clear output of a Jupyter Notebook cell"""
+        clear_output()
+
     """Google Analytics
     """
+
     def launch_ga4(self):
         """GA4の準備"""
         self.ga4 = ga4.LaunchGA4(self.creds)
         self.select_ga4_property()
 
     def select_ga4_property(self):
-        """GA4のアカウントとプロパティを選択"""
+        """GA4のアカウントとプロパティをメニューで選択"""
         clear_output()
         if self.ga4.accounts:
-            print("　　↓GAのアカウントとプロパティを以下から選択してください")
+            print("　　↓GA4のアカウントとプロパティを以下から選択してください")
             menu1, menu2, _ = widget.create_ga_account_property_menu(self.ga4.accounts)
 
             @interact(value=menu1)
@@ -119,11 +128,12 @@ class Launch(object):
 
     def launch_ga(self):
         """GA (UA)の準備"""
-        self.ga3 = ga3.Megaton(self.creds, credential_cache_file=google_api.get_cache_filename_from_json(self.json))
+        self.ga3 = ga3.LaunchUA(self.creds, credential_cache_file=google_api.get_cache_filename_from_json(self.json))
         self.select_ga3_view()
 
     def select_ga3_view(self):
-        """GAのアカウントとプロパティとビューを選択"""
+        """GAのアカウントとプロパティとビューをメニューで選択"""
+        clear_output()
         if self.ga3.accounts:
             print("　　↓GAのアカウントとプロパティを以下から選択してください")
             menu1, menu2, menu3 = widget.create_ga_account_property_menu(self.ga3.accounts)
@@ -163,7 +173,17 @@ class Launch(object):
             self.ga3.report.set_dates(date1, date2)
         elif self.ga_ver == 4:
             self.ga4.report.set_dates(date1, date2)
-        print(f"GA{self.ga_ver}のレポート期間は{date1}〜{date2}")
+        print(f"GA{self.ga_ver}のレポート期間：{date1}〜{date2}")
+
+    @property
+    def dates_as_string(self):
+        if self.ga_ver == 3:
+            start_date = self.ga3.report.start_date
+            end_date = self.ga3.report.end_date
+        elif self.ga_ver == 4:
+            start_date = self.ga4.report.start_date
+            end_date = self.ga4.report.end_date
+        return f"{start_date.replace('-', '')}-{end_date.replace('-', '')}"
 
     def report(self, d: list, m: list, filter_d=None, filter_m=None, sort=None, **kwargs):
         """GA/GA4からデータを抽出"""
@@ -187,17 +207,10 @@ class Launch(object):
                 order_bys=sort,
             )
 
-    @property
-    def dates_as_string(self):
-        if self.ga_ver == 3:
-            start_date = self.ga3.report.start_date
-            end_date = self.ga3.report.end_date
-        elif self.ga_ver == 4:
-            start_date = self.ga4.report.start_date
-            end_date = self.ga4.report.end_date
-        return f"{start_date.replace('-', '')}-{end_date.replace('-', '')}"
+    """Download
+    """
 
-    def save(self, df: pd.DataFrame, filename: str, format: str = 'CSV'):
+    def save(self, df: pd.DataFrame, filename: str):
         """データを保存：ファイル名に期間を付与。拡張子がなければ付与"""
         new_filename = utils.append_suffix_to_filename(filename, f"_{self.dates_as_string}")
         utils.save_df(df, new_filename)
@@ -209,71 +222,11 @@ class Launch(object):
         new_filename = self.save(df, filename)
         colabo.download(new_filename)
 
-    def analyze_content(self, sheet_name: str = '使い方'):
-        """コンテンツ貢献度分析"""
-        # 設定をシートから読み込む
-        if self.select_sheet(sheet_name):
-            # 設定を読み込む
-            include_domains = self.load_cell(5, 5)
-            include_pages = self.load_cell(11, 5)
-            exclude_pages = self.load_cell(16, 5)
-            cv_pages = self.load_cell(26, 5)
-            page_regex = self.load_cell(29, 5)
-            title_regex = self.load_cell(32, 5)
-
-            # 元データ抽出：コンテンツ閲覧者
-            _df = ga3.cid_date_page(self.ga3, include_domains, include_pages, exclude_pages, page_regex)
-            if not len(_df):
-                print("データがありません。")
-                return
-
-            # Pageと人でまとめて回遊を算出
-            df = ga3.to_page_cid(_df)
-
-            # 元データ抽出：再訪問した人の最終訪問日
-            _df = ga3.cid_last_returned_date(self.ga3)
-
-            # 閲覧後の再訪問を判定
-            df2 = ga3.to_page_cid_return(df, _df)
-
-            # 元データ抽出：入口以外で特定CVページに到達
-            _df = ga3.cv_cid(self.ga3, cv_pages)
-
-            # 人単位でまとめて最後にCVした日を算出
-            _df = ga3.to_cid_last_cv(_df)
-
-            # コンテンツ閲覧後のCVを判定
-            df3 = ga3.to_cv(df2, _df)
-
-            # Page単位でまとめる
-            df_con = ga3.to_page_participation(df3[['page', 'clientId', 'entrances', 'kaiyu', 'returns', 'cv']])
-
-            # 元データ抽出：タイトル
-            df_t = ga3.get_page_title(self.ga3, include_domains, include_pages, exclude_pages, page_regex, title_regex)
-
-            df = pd.merge(
-                df_con,
-                df_t,
-                how='left',
-                on='page')[['page', 'title', 'users', 'entry_users', 'kaiyu_users', 'return_users', 'cv_users']]
-
-            return df
-
-    def save_content_analysis_to_gs(self, df, sheet_name: str = '_cont'):
-        if self.select_sheet(sheet_name):
-            if self.gs.sheet.overwrite_data(df, include_index=False):
-                self.gs.sheet.auto_resize(cols=[2, 3, 4, 5, 6, 7])
-                self.gs.sheet.resize(col=1, width=300)
-                self.gs.sheet.resize(col=2, width=300)
-                self.gs.sheet.freeze(rows=1)
-                print(f"レポートのデータを上書き保存しました。")
-
-    def user_explorer(self):
-        pass
-
     """Google Sheets
     """
+
     def launch_gs(self, url):
+        """APIでGoogle Sheetsにアクセスする準備"""
         try:
             self.gs = gsheet.LaunchGS(self.creds, url)
         except errors.BadCredentialFormat:
@@ -298,11 +251,11 @@ class Launch(object):
     def select_sheet(self, sheet_name):
         try:
             name = self.gs.sheet.select(sheet_name)
+            if name:
+                print(f"「{sheet_name}」シートを選択しました。")
+                return True
         except errors.SheetNotFound:
             print(f"{sheet_name} シートが存在しません。")
-        if name:
-            print(f"「{sheet_name}」シートを選択しました。")
-            return True
 
     def load_cell(self, row, col, what: str = None):
         self.gs.sheet.cell.select(row, col)
@@ -310,3 +263,232 @@ class Launch(object):
         if what:
             print(f"{what}は{value}")
         return value
+
+    """Analysis
+    """
+
+    def analyze_content(self, url):
+        """コンテンツ貢献度分析"""
+        self.content_analysis = self.ContentAnalysis(self, url)
+
+    class ContentAnalysis:
+        """コンテンツ貢献度分析"""
+
+        def __init__(self, parent, url: str, sheet_name: str = '使い方'):
+            """constructor"""
+            self.parent = parent
+            self.url = url
+            self.sheet_name = sheet_name
+            self.data = {}
+            self.conf = {}
+            if self.update():
+                self.show()
+
+        def _get_config(self):
+            """設定をシートから読み込む"""
+            # open Google Sheets
+            self.parent.launch_gs(self.url)
+            if self.parent.select_sheet(self.sheet_name):
+                # 設定をセルから読み込む
+                template_ver = self.parent.load_cell(1, 4)
+                if template_ver == '2':
+                    self.conf['include_domains'] = self.parent.load_cell(5, 6)
+                    self.conf['include_pages'] = self.parent.load_cell(9, 6)
+                    self.conf['exclude_pages'] = self.parent.load_cell(13, 6)
+                    self.conf['min_pv'] = utils.extract_integer_from_string(self.parent.load_cell(16, 6))
+                    self.conf['cv_pages'] = self.parent.load_cell(20, 7)
+                    self.conf['m1_pages'] = self.parent.load_cell(23, 7)
+                    self.conf['m2_pages'] = self.parent.load_cell(24, 7)
+                    self.conf['m3_pages'] = self.parent.load_cell(25, 7)
+                    self.conf['m4_pages'] = self.parent.load_cell(26, 7)
+                    self.conf['m5_pages'] = self.parent.load_cell(27, 7)
+                    self.conf['page_regex'] = self.parent.load_cell(30, 6)
+                    self.conf['title_regex'] = self.parent.load_cell(33, 6)
+                else:
+                    self.conf['include_domains'] = self.parent.load_cell(5, 5)
+                    self.conf['include_pages'] = self.parent.load_cell(11, 5)
+                    self.conf['exclude_pages'] = self.parent.load_cell(16, 5)
+                    self.conf['min_pv'] = utils.extract_integer_from_string(self.parent.load_cell(21, 5))
+                    self.conf['cv_pages'] = self.parent.load_cell(26, 5)
+                    self.conf['page_regex'] = self.parent.load_cell(29, 5)
+                    self.conf['title_regex'] = self.parent.load_cell(32, 5)
+                self.conf['metrics'] = [i for i in ['cv','m1','m2','m3','m4','m5'] if self.conf[f'{i}_pages']]
+
+        def _get_page_cid(self):
+            """対象コンテンツが閲覧されたcidを得る"""
+            if self.parent.ga_ver == 3:
+                # 元データ抽出：対象pageが閲覧されたcidとdate
+                _df = ga3.get_cid_date_page(self.parent.ga3, self.conf)
+                print(f"（{len(_df)}行の元データを抽出...）")
+
+                # pageとcidでまとめる
+                df = _df.groupby(['page', 'clientId']).agg({
+                    'date': 'min',  # 初めて閲覧した日（再訪問とCVの判定で使う）
+                    'sessionCount': 'min',  # 初めて閲覧したセッション番号（CVの判定で使う）
+                    'entrances': 'max',  # 入口になったことがあれば1
+                    'sessions': 'sum',  # 累計セッション回数
+                    'exits': 'sum',  # 累計exits
+                }).rename(columns={
+                    'date': 'first_visit_date',
+                    'sessionCount': 'first_session_count',
+                }).reset_index()
+
+                # 回遊を算出
+                df['kaiyu'] = df.apply(lambda x: 0 if x['sessions'] == 1 & x['exits'] == 1 else 1, axis=1)
+                return df
+
+        def _add_return_to_page_cid(self):
+            """対象page閲覧後の再訪問の指標を追加する"""
+            if self.parent.ga_ver == 3:
+                # 元データ抽出：再訪問した人の最終訪問日
+                _df = ga3.get_last_returned_date(self.parent.ga3)
+
+                # 閲覧後の再訪問を追加
+                df = pd.merge(
+                    self.data['page_cid'].drop(['sessions', 'exits'], inplace=False, axis=1),
+                    _df,
+                    how='left',
+                    on='clientId')
+
+                df['returns'] = df.apply(
+                    lambda x: 1 if (x['last_visit_date'] != '') & (
+                            x['last_visit_date'] != x['first_visit_date']) else 0, axis=1)
+
+                print("（再訪問の指標を追加...）")
+                return df.drop(['last_visit_date'], inplace=False, axis=1)
+
+        def _add_cv_to_page_cid(self, cv_pages, cv_label: str = 'cv'):
+            """対象page閲覧後に指定CVページに到達した人数を追加する"""
+            if self.parent.ga_ver == 3:
+                # 元データ抽出：入口以外でCVページに到達したcidとdate
+                _df = ga3.get_no_entrance_cv_cid(self.parent.ga3, cv_pages)
+
+                # cidでまとめて最後にCVしたdateを算出
+                df = _df[['clientId', 'date', 'sessionCount']].groupby(['clientId']).max()
+                df.rename(columns={
+                    'date': f'last_{cv_label}_date',
+                    'sessionCount': f'last_{cv_label}_session_count',
+                }, inplace=True)
+
+                # コンテンツ閲覧後のCVを判定
+                df2 = pd.merge(
+                    self.data['page_cid'],
+                    df,
+                    how='left',
+                    on='clientId')
+
+                def calc_new_col(row):
+                    if row[f'last_{cv_label}_date']:
+                        if int(row[f'last_{cv_label}_date']) > int(row['first_visit_date']):
+                            return 1
+                        elif row[f'last_{cv_label}_date'] == row['first_visit_date'] \
+                                and row['first_session_count'] < row[f'last_{cv_label}_session_count']:
+                            return 1
+                    return 0
+
+                df2[cv_label] = df2.fillna(0).apply(calc_new_col, axis=1)
+
+                print(f"（{cv_label}の指標を追加...）")
+                return df2.drop([f'last_{cv_label}_date', f'last_{cv_label}_session_count'], inplace=False, axis=1)
+
+        def _group_by_page(self, df, cv_label: str = 'cv'):
+            """Page単位でまとめる"""
+            if self.parent.ga_ver == 3:
+                d = {
+                    'clientId': 'nunique',
+                    'entrances': 'sum',
+                    'kaiyu': 'sum',
+                    'returns': 'sum',
+                    # cv_label: 'sum',
+                }
+                for i in self.conf['metrics']:
+                    d[i] = 'sum'
+                _df = df.groupby('page').agg(d).reset_index().sort_values('clientId', ascending=False)
+
+                c = {
+                    'clientId': 'users',
+                    'entrances': 'entry_users',
+                    'kaiyu': 'kaiyu_users',
+                    'returns': 'return_users',
+                    # cv_label: f'{cv_label}_users',
+                }
+                for i in self.conf['metrics']:
+                    c[i] = f'{i}_users'
+                _df.rename(columns=c, inplace=True)
+
+                return _df[_df['users'] >= self.conf['min_pv']].reset_index()
+
+        def _add_title_to_page(self):
+            """ページタイトルを取得・変換して追加する"""
+            if self.parent.ga_ver == 3:
+                # 元データ抽出：タイトル
+                _df = ga3.get_page_title(self.parent.ga3, self.conf)
+
+                df = pd.merge(
+                    self.data['page'],
+                    _df,
+                    how='left',
+                    on='page')
+
+                return df
+
+        def update(self):
+            """コンテンツ貢献度のレポートを作成する"""
+
+            # 設定をシートから読み込む
+            self._get_config()
+
+            # 一番細かい元データを得る
+            try:
+                self.data['page_cid'] = self._get_page_cid()
+            except errors.BadRequest as e:
+                print(f"対象ドメイン・ページの指定方法に問題があります：{self.conf}")
+                return
+            except errors.NoDataReturned:
+                print(f"データが見つかりません。条件を見直してください：{self.conf}")
+                return
+
+            # 指標を算出する
+            self.data['page_cid'] = self._add_return_to_page_cid()
+            for i in self.conf['metrics']:
+                self.data['page_cid'] = self._add_cv_to_page_cid(self.conf[f'{i}_pages'], i)
+
+            # pageでまとめる
+            self.data['page'] = self._group_by_page(
+                self.data['page_cid'].drop(['first_visit_date', 'first_session_count'], inplace=False, axis=1)
+            )
+
+            # タイトルを追加する
+            self.data['page'] = self._add_title_to_page()
+
+            # 順番を並び替える
+            columns = ['page', 'title', 'users', 'entry_users', 'kaiyu_users', 'return_users']
+            for i in self.conf['metrics']:
+                columns.append(f'{i}_users')
+            self.data['page'] = self.data['page'][columns]
+
+            return True
+
+        def show(self):
+            """コンテンツ貢献度のレポートを表示する"""
+            self.parent.show(self.data['page'])
+
+        def save(self, sheet_name: str = '_cont'):
+            """コンテンツ貢献度のレポートをGoogle Sheetsへ反映する"""
+            if self.parent.select_sheet(sheet_name):
+                if self.parent.gs.sheet.overwrite_data(self.data['page'], include_index=False):
+                    self.parent.gs.sheet.auto_resize(cols=[2, 3, 4, 5, 6, 7])
+                    self.parent.gs.sheet.resize(col=1, width=300)
+                    self.parent.gs.sheet.resize(col=2, width=300)
+                    self.parent.gs.sheet.freeze(rows=1)
+                    print(f"レポートのデータを上書き保存しました。")
+
+    def save_content_analysis_to_gs(self, df, sheet_name: str = '_cont'):
+        """OLD"""
+        if self.select_sheet(sheet_name):
+            if self.gs.sheet.overwrite_data(df, include_index=False):
+                self.gs.sheet.auto_resize(cols=[2, 3, 4, 5, 6, 7])
+                self.gs.sheet.resize(col=1, width=300)
+                self.gs.sheet.resize(col=2, width=300)
+                self.gs.sheet.freeze(rows=1)
+                print(f"レポートのデータを上書き保存しました。")

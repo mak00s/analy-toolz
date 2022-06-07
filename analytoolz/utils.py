@@ -4,6 +4,7 @@ Common Functions
 
 import os
 import pandas as pd
+import re
 
 
 def is_integer(n):
@@ -14,6 +15,12 @@ def is_integer(n):
         return False
     else:
         return float(n).is_integer()
+
+
+def extract_integer_from_string(s):
+    m = re.search('(\d+)', s)
+    if m:
+        return int(m.group(1))
 
 
 def append_suffix_to_filename(filename, suffix):
@@ -56,6 +63,7 @@ def format_df(df: pd.DataFrame, rules: list):
 def save_df(df: pd.DataFrame, filename: str, format: str = 'CSV'):
     """DataFrameを保存"""
     df.to_csv(filename, index=False)
+
 
 def get_date_range(start_date: str, end_date: str, format: str = None):
     """Convert date range to a list of each date in the range"""

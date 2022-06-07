@@ -6,6 +6,11 @@ class Error(Exception):
     pass
 
 
+class NoDataReturned(Error):
+    """No data was returned from API."""
+    pass
+
+
 class PartialDataReturned(Error):
     """Only partial data was returned from API.
     clientId is not officially supported by Google. Using this dimension in an
@@ -38,7 +43,9 @@ class BadCredentialScope(Error):
 
 class BadRequest(Error):
     """"Request given has errors"""
-    pass
+
+    def __init__(self, message=None):
+        self.message = message or "There is an error in the request."
 
 
 class BadCredentialFormat(Error):

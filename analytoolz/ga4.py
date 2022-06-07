@@ -39,7 +39,6 @@ from google.oauth2.credentials import Credentials
 
 from . import errors, google_api, utils
 
-
 LOGGER = logging.getLogger(__name__)
 
 

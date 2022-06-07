@@ -17,7 +17,7 @@ from . import constants, errors, ga4, google_api, utils
 LOGGER = logging.getLogger(__name__)
 
 
-class Megaton(ga4.LaunchGA4):
+class LaunchUA(ga4.LaunchGA4):
     this = "Megaton UA"
 
     def __init__(self, credentials: Credentials, **kwargs):
@@ -472,22 +472,22 @@ class Megaton(ga4.LaunchGA4):
             if offset:
                 request["pageToken"] = offset
 
-            # try:
-            response = self.parent.data_client.reports().batchGet(
-                body={
-                    'reportRequests': [request],
-                    'useResourceQuotas': False  # only for 360
-                }
-            ).execute()
-            # except err.HttpError as e:
-            #     data = json.loads(e.content.decode('utf-8'))
-            #     code = data['error']["code"]
-            #     message = data['error']['message']
-            #     if code == 400:  # and "rate limit exceeded" in message.lower():
-            #         LOGGER.error(message)
-            #         raise errors.BadRequest(message)
-            #     else:
-            #         raise e
+            try:
+                response = self.parent.data_client.reports().batchGet(
+                    body={
+                        'reportRequests': [request],
+                        'useResourceQuotas': False  # only for 360
+                    }
+                ).execute()
+            except err.HttpError as e:
+                data = json.loads(e.content.decode('utf-8'))
+                code = data['error']["code"]
+                # message = data['error']['message']
+                status = data['error']['status']
+                if code == 400 and status == 'INVALID_ARGUMENT':
+                    raise errors.BadRequest(status)
+            except Exceptions as e:
+                raise e
 
             report_data = response.get('reports', [])[0]
             total_rows = report_data['data'].get('rowCount', 0)
@@ -609,78 +609,57 @@ class Megaton(ga4.LaunchGA4):
                     return pd.DataFrame(all_data, columns=self.headers)
 
 
-def cid_date_page(ga3, include_domains=None, include_pages=None, exclude_pages=None, page_regex=None):
-    """
-    元データ抽出：コンテンツ閲覧者
-    対象・除外・変換条件を指定してpage_viewイベントを抽出しdataframeに変換
+def get_cid_date_page(ga3, conf: dict):
+    """データ抽出
+        Dimensions:
+            対象ページを閲覧したclient_id,セッションカウント, 日付
+        Metrics:
+            入口, PV, 出口
     """
     filter = []
-    if include_domains:
-        filter.append(f'hostname=~{include_domains}')
-    if include_pages:
-        filter.append(f'pagePath=~{include_pages}')
-    if exclude_pages:
-        filter.append(f'pagePath!~{exclude_pages}')
+    if conf['include_domains']:
+        filter.append(f"hostname=~{conf['include_domains']}")
+    if conf['include_pages']:
+        filter.append(f"pagePath=~{conf['include_pages']}")
+    if conf['exclude_pages']:
+        filter.append(f"pagePath!~{conf['exclude_pages']}")
     dimension_filter = ";".join(filter)
 
-    try:
-        df = ga3.report.show(
-            dimensions=[
-                'clientId',
-                'date',
-                'sessionCount',
-                'pagePath',
-            ],
-            dimension_filter=dimension_filter,
-            metrics=[
-                'entrances',
-                'uniquePageviews',
-                'exits',
-            ],
-            metric_filter='uniquePageviews>0',
-            order_bys='clientId,pagePath,date,sessionCount',
-            # return_generator=True
-            limit=10000)
-    except errors.BadRequest as e:
-        print(f"条件の書き方に問題があります：{e}")
-    else:
+    df = ga3.report.show(
+        dimensions=[
+            'clientId',
+            'sessionCount',
+            'date',
+            'pagePath',
+        ],
+        dimension_filter=dimension_filter,
+        metrics=[
+            'entrances',
+            'uniquePageviews',
+            'exits',
+        ],
+        order_bys='clientId,sessionCount,date,pagePath',
+    )
+
+    if len(df):
         # 値を変換
-        if len(df):
-            if page_regex:
-                utils.format_df(df, [('pagePath', page_regex, '')])
-            return df.rename(columns={
-                'pagePath': 'page',
-                'uniquePageviews': 'sessions',
-            })
-        else:
-            print("no data")
-            return df
+        if conf['page_regex']:
+            utils.format_df(df, [('pagePath', conf['page_regex'], '')])
+        # カラム名を変更
+        return df.rename(columns={
+            'pagePath': 'page',
+            'uniquePageviews': 'sessions',
+        })
+    else:
+        raise errors.NoDataReturned
 
 
-def to_page_cid(_df: pd.DataFrame):
-    """Pageと人でまとめて回遊を算出
-    """
-    if not isinstance(_df, pd.DataFrame):
-        return
-
-    df = _df.groupby(['page', 'clientId']).agg({
-        'date': 'min',  # 初めて閲覧した日（再訪問とCVの判定で使う）
-        'sessionCount': 'min',  # 初めて閲覧したセッション番号（CVの判定で使う）
-        'entrances': 'max',  # 入口になったことがあれば1
-        'sessions': 'sum',  # 累計セッション回数
-        'exits': 'sum',  # 累計exits
-    }).rename(columns={
-        'date': 'first_visit_date',
-        'sessionCount': 'first_session_count',
-    }).reset_index()
-
-    df['kaiyu'] = df.apply(lambda x: 0 if x['sessions'] == 1 & x['exits'] == 1 else 1, axis=1)
-
-    return df
-
-
-def cid_last_returned_date(ga3):
-    """元データ抽出：再訪問した人の最終訪問日
+def get_last_returned_date(ga3):
+    """データ抽出：再訪問した人の最終訪問日
+        Dimensions:
+            再訪問時のclient_id,日付
+        Metrics:
+            入口
     """
     df = ga3.report.show(
         dimensions=[
@@ -689,36 +668,19 @@ def cid_last_returned_date(ga3):
         ],
         dimension_filter='ga:sessionCount!=1',
         metrics=[
-            'entrances',
+            'entrances',  # 不要
         ],
         order_bys='ga:clientId,ga:date',
     )
 
-    # 人単位でまとめて最後に訪問した日を算出
+    # cid単位でまとめて最後に訪問した日を算出
     _df = df.groupby(['clientId']).max().rename(columns={'date': 'last_visit_date'})
 
     return _df.drop(['entrances'], inplace=False, axis=1)
 
 
-def to_page_cid_return(df1, df2):
-    """閲覧後の再訪問を判定
-    """
-    if not isinstance(df1, pd.DataFrame):
-        return
-    _df = pd.merge(
-        df1.drop(['sessions', 'exits'], inplace=False, axis=1),
-        df2,
-        how='left',
-        on='clientId')
-
-    _df['returns'] = _df.apply(
-        lambda x: 1 if (x['last_visit_date'] != '') & (x['last_visit_date'] != x['first_visit_date']) else 0, axis=1)
-
-    return _df
-
-
-def cv_cid(ga3, include_pages=None, metric_filter='ga:entrances<1'):
-    """元データ抽出：入口以外で特定CVページに到達
+def get_no_entrance_cv_cid(ga3, include_pages=None, metric_filter: str = 'ga:entrances<1'):
+    """元データ抽出：入口以外でCVページに到達したcid
     """
     filter = []
     if include_pages:
@@ -727,14 +689,14 @@ def cv_cid(ga3, include_pages=None, metric_filter='ga:entrances<1'):
 
     _df = ga3.report.show(
         dimensions=[
-            'pagePath',
+            'pagePath',  # 不要（確認のため）
             'clientId',
             'date',
             'sessionCount',
         ],
         dimension_filter=dimension_filter,
         metrics=[
-            'users',
+            'users',  # 不要
         ],
         metric_filter=metric_filter,
         order_bys='pagePath,clientId,date',
@@ -743,112 +705,43 @@ def cv_cid(ga3, include_pages=None, metric_filter='ga:entrances<1'):
         return _df.drop(['users'], axis=1)
 
 
-def to_cid_last_cv(df):
-    """人単位でまとめて最後にCVした日を算出
-    """
-    if not isinstance(df, pd.DataFrame):
-        return
-
-    _df = df[['clientId', 'date', 'sessionCount']].groupby(['clientId']).max()
-    _df.rename(columns={
-        'date': 'last_cv_date',
-        'sessionCount': 'last_cv_session_count',
-    }, inplace=True)
-    return _df
-
-
-def to_cv(df1, df2):
-    """コンテンツ閲覧後のCVを判定
-    """
-    if not isinstance(df1, pd.DataFrame):
-        return
-
-    _df = pd.merge(
-        df1.drop(['last_visit_date'], inplace=False, axis=1),
-        df2,
-        how='left',
-        on='clientId')
-
-    def calc_new_col(row):
-        if row['last_cv_date']:
-            if int(row['last_cv_date']) > int(row['first_visit_date']):
-                return 1
-            elif row['last_cv_date'] == row['first_visit_date'] and row['first_session_count'] < row['last_cv_session_count']:
-                return 1
-        return 0
-
-    _df['cv'] = _df.fillna(0).apply(calc_new_col, axis=1)
-
-    return _df
-
-
-def to_page_participation(df):
-    """Page単位でまとめる
-    """
-    if not isinstance(df, pd.DataFrame):
-        return
-
-    _df = df.groupby('page').agg({
-        'clientId': 'nunique',
-        'entrances': 'sum',
-        'kaiyu': 'sum',
-        'returns': 'sum',
-        'cv': 'sum',
-    }).reset_index().sort_values('clientId', ascending=False)
-
-    _df.rename(columns={
-        'clientId': 'users',
-        'entrances': 'entry_users',
-        'kaiyu': 'kaiyu_users',
-        'returns': 'return_users',
-        'cv': 'cv_users',
-        }, inplace=True)
-    return _df.sort_values('users', ascending=False)
-
-
-def get_page_title(ga3, include_domains=None, include_pages=None, exclude_pages=None, page_regex=None, title_regex=None):
+def get_page_title(ga3, conf: dict):
     """ 対象・除外・変換条件を指定してpageとtitleを抽出 """
     filter = []
-    if include_domains:
-        filter.append(f'hostname=~{include_domains}')
-    if include_pages:
-        filter.append(f'pagePath=~{include_pages}')
-    if exclude_pages:
-        filter.append(f'pagePath!~{exclude_pages}')
+    if conf['include_domains']:
+        filter.append(f"hostname=~{conf['include_domains']}")
+    if conf['include_pages']:
+        filter.append(f"pagePath=~{conf['include_pages']}")
+    if conf['exclude_pages']:
+        filter.append(f"pagePath!~{conf['exclude_pages']}")
     dimension_filter = ";".join(filter)
 
+    df = ga3.report.show(
+        dimensions=[
+            'pagePath',
+            'pageTitle',
+        ],
+        dimension_filter=dimension_filter,
+        metrics=[
+            'uniquePageviews',
+        ],
+        order='-uniquePageviews',
+    )
+
+    df.rename(columns={
+        'pagePath': 'page',
+        'pageTitle': 'title',
+    }, inplace=True)
+
+    # 値を変換
+    if conf['page_regex']:
+        utils.format_df(df, [('pagePath', conf['page_regex'], '')])
+    if conf['title_regex']:
+        utils.format_df(df, [('title', conf['title_regex'], '')])
+
+    # group byでまとめる
     try:
-        df = ga3.report.show(
-            dimensions=[
-                'pagePath',
-                'pageTitle',
-            ],
-            dimension_filter=dimension_filter,
-            metrics=[
-                'uniquePageviews',
-            ],
-            metric_filter='uniquePageviews>0',
-            order='-uniquePageviews',
-            limit=10000)
-    except errors.BadRequest as e:
-        print(f"条件の書き方に問題があります：{e}")
-        return
-    else:
-        df.rename(columns={
-            'pagePath': 'page',
-            'pageTitle': 'title',
-        }, inplace=True)
-
-        # 値を変換
-        if page_regex:
-            utils.format_df(df, [('page', page_regex, '')])
-        if title_regex:
-            utils.format_df(df, [('title', title_regex, '')])
-
-        # group byでまとめる
-        try:
-            return df.sort_values(['page', 'uniquePageviews'], ascending=False).groupby('page').first().reset_index()[
+        return df.sort_values(['page', 'uniquePageviews'], ascending=False).groupby('page').first().reset_index()[
             ['page', 'title']]
-        except KeyError:
-            LOGGER.warn("No data found.")
-            return pd.DataFrame()
+    except KeyError:
+        raise errors.NoDataReturned
