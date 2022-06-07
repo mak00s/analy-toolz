@@ -367,28 +367,31 @@ class Launch(object):
                 # 元データ抽出：入口以外でCVページに到達したcidとdate
                 _df = ga3.get_no_entrance_cv_cid(self.parent.ga3, cv_pages)
 
-                # cidでまとめて最後にCVしたdateを算出
-                df = _df[['clientId', 'date', 'sessionCount']].groupby(['clientId']).max()
-                df.rename(columns={
-                    'date': f'last_{cv_label}_date',
-                    'sessionCount': f'last_{cv_label}_session_count',
-                }, inplace=True)
+                if len(_df):
+                    # cidでまとめて最後にCVしたdateを算出
+                    df = _df[['clientId', 'date', 'sessionCount']].groupby(['clientId']).max()
+                    df.rename(columns={
+                        'date': f'last_{cv_label}_date',
+                        'sessionCount': f'last_{cv_label}_session_count',
+                    }, inplace=True)
 
-                # コンテンツ閲覧後のCVを判定
-                df2 = pd.merge(self.data['page_cid'], df, how='left', on='clientId')
+                    # コンテンツ閲覧後のCVを判定
+                    df2 = pd.merge(self.data['page_cid'], df, how='left', on='clientId')
 
-                def calc_new_col(row):
-                    if row[f'last_{cv_label}_date']:
-                        if int(row[f'last_{cv_label}_date']) > int(row['first_visit_date']):
-                            return 1
-                        elif row[f'last_{cv_label}_date'] == row['first_visit_date'] \
-                                and row['first_session_count'] < row[f'last_{cv_label}_session_count']:
-                            return 1
-                    return 0
+                    def calc_new_col(row):
+                        if row[f'last_{cv_label}_date']:
+                            if int(row[f'last_{cv_label}_date']) > int(row['first_visit_date']):
+                                return 1
+                            elif row[f'last_{cv_label}_date'] == row['first_visit_date'] \
+                                    and row['first_session_count'] < row[f'last_{cv_label}_session_count']:
+                                return 1
+                        return 0
 
-                df2[cv_label] = df2.fillna(0).apply(calc_new_col, axis=1)
-
-                return df2.drop([f'last_{cv_label}_date', f'last_{cv_label}_session_count'], inplace=False, axis=1)
+                    df2[cv_label] = df2.fillna(0).apply(calc_new_col, axis=1)
+                    return df2.drop([f'last_{cv_label}_date', f'last_{cv_label}_session_count'], inplace=False, axis=1)
+                else:
+                    df2[cv_label] = 0
+                    return df2
 
         def _group_by_page(self, df):
             """Page単位でまとめる"""
