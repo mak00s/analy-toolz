@@ -758,6 +758,7 @@ class MegatonGA4(object):
                 LOGGER.warn("Up to 10 dimensions are allowed.")
                 metrics = metrics[:10]
 
+            limit = kwargs.get('limit', 10000)
             start_date = kwargs.get('start_date', self.start_date)
             end_date = kwargs.get('end_date', self.end_date)
             LOGGER.info(f"Requesting a report ({start_date} - {end_date})")
@@ -771,7 +772,7 @@ class MegatonGA4(object):
                 metric_filter=kwargs.get('metric_filter'),
                 order_bys=kwargs.get('order_bys'),
                 show_total=False,
-                limit=kwargs.get('limit', 10000),
+                limit=limit,
             )
             # print(request)
 

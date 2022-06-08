@@ -743,7 +743,9 @@ def get_page_title(ga3, conf: dict):
 
     # group byでまとめる
     try:
-        return df.sort_values(['page', 'uniquePageviews'], ascending=False).groupby('page').first().reset_index()[
-            ['page', 'title']]
+        return df.sort_values(
+            ['page', 'uniquePageviews'],
+            ascending=False
+        ).groupby('page').first().reset_index()[['page', 'title']]
     except KeyError:
         raise errors.NoDataReturned
