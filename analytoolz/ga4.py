@@ -486,8 +486,8 @@ class MegatonGA4(object):
             self.segment = None
 
         def set_dates(self, start_date: str, end_date: str):
-            self.start_date = start_date
-            self.end_date = end_date
+            self.start_date = start_date.strip()
+            self.end_date = end_date.strip()
 
         def _format_name(self, name: str):
             """Convert api_name or display_name of valid dimensions or metrics to an api_name
@@ -498,15 +498,13 @@ class MegatonGA4(object):
                 field_type: 'dimension' or 'metric'
             """
             what = 'api_name'  # field name to return
-            field_types = ['dimensions', 'metrics']
-            for type in field_types:
-                fields = self.parent.property.api_metadata[type]
-                for i in fields:
-                    if i['display_name'] == name:
+            for type in ['dimensions', 'metrics']:
+                for i in self.parent.property.api_metadata[type]:
+                    if i['display_name'] == name.strip():
                         return i[what], type
-                    elif i['api_name'] == name:
+                    elif i['api_name'] == name.strip():
                         return i[what], type
-            LOGGER.warn(f"{name} is not a dimension or a metric.")
+            raise errors.BadRequest(f"{name} is not a dimension or a metric.")
 
         def _parse_operator(self, operator: str, type: str):
             """Convert legacy filters format from Core Reporting API v3 to Filter object"""
@@ -524,48 +522,53 @@ class MegatonGA4(object):
                     return Filter.NumericFilter.Operation.EQUAL
                 elif operator == '>':
                     return Filter.NumericFilter.Operation.GREATER_THAN
+                elif operator == '>=':
+                    return Filter.NumericFilter.Operation.GREATER_THAN_OR_EQUAL
                 elif operator == '<':
                     return Filter.NumericFilter.Operation.LESS_THAN
+                elif operator == '<=':
+                    return Filter.NumericFilter.Operation.LESS_THAN_OR_EQUAL
                 return Filter.NumericFilter.Operation.OPERATION_UNSPECIFIED
 
         def _parse_filter_condition(self, condition: str):
             """Convert a single legacy filter format from Core Reporting API v3 to FilterExpression object"""
-            m = re.search(r'^(.+)(==|!=|=@|!@|=~|!~|>|<)(.+)$', condition)
-            if m:
-                field, type = self._format_name(m.groups()[0])
-                value = m.groups()[2]
-                op = m.groups()[1]
-                is_not = True if op.startswith('!') else False
-                operator = self._parse_operator(op, type)
+            m = re.search(r'^([\w_\+\/\(\) ]+)(==|!=|=@|!@|=~|!~|>|>=|<|<=)(.+)$', condition)
+            if not m:
+                raise errors.BadRequest(f"Invalid Filter: '{condition}'")
+            field, type = self._format_name(m.groups()[0])
+            value = m.groups()[2]
+            op = m.groups()[1]
+            is_not = True if op.startswith('!') else False
+            operator = self._parse_operator(op, type)
 
-                if type == 'dimensions':
-                    filter = Filter(
-                        field_name=field,
-                        string_filter=Filter.StringFilter(
-                            match_type=operator,
-                            value=value,
-                        )
+            if type == 'dimensions':
+                filter = Filter(
+                    field_name=field,
+                    string_filter=Filter.StringFilter(
+                        match_type=operator,
+                        value=value,
                     )
-                elif type == 'metrics':
-                    if utils.is_integer(value):
-                        value_class = NumericValue(int64_value=value)
-                    else:
-                        value_class = NumericValue(double_value=float(value))
-                    filter = Filter(
-                        field_name=field,
-                        numeric_filter=Filter.NumericFilter(
-                            operation=operator,
-                            value=value_class,
-                        )
-                    )
-                if is_not:
-                    return FilterExpression(
-                        not_expression=FilterExpression(
-                            filter=filter
-                        )
-                    )
+                )
+            elif type == 'metrics':
+                if utils.is_integer(value):
+                    value_class = NumericValue(int64_value=int(float(value)))
                 else:
-                    return FilterExpression(filter=filter)
+                    value_class = NumericValue(double_value=float(value))
+                filter = Filter(
+                    field_name=field,
+                    numeric_filter=Filter.NumericFilter(
+                        operation=operator,
+                        value=value_class,
+                    )
+                )
+            if is_not:
+                return FilterExpression(
+                    not_expression=FilterExpression(
+                        filter=filter
+                    )
+                )
+            else:
+                return FilterExpression(filter=filter)
 
         def _format_filter(self, conditions):
             """Convert legacy filters format from Core Reporting API v3 to Filter object"""

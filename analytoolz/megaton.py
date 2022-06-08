@@ -53,10 +53,11 @@ class Launch(object):
         """Display pandas DaraFrame as a table"""
         if self.is_colab:
             return colabo.table(df)
-        try:
-            itables.show(df)
-        except:
-            display(df)
+        if type(df) == pd.core.frame.DataFrame:
+            try:
+                itables.show(df)
+            except NameError:
+                display(df)
 
     @staticmethod
     def clear():
@@ -189,28 +190,31 @@ class Launch(object):
         """GA/GA4からデータを抽出"""
         dimensions = [i for i in d if i]
         metrics = [i for i in m if i]
-        if self.ga_ver == 3:
-            return self.ga3.report.show(
-                dimensions,
-                metrics,
-                dimension_filter=filter_d,
-                metric_filter=filter_m,
-                order_bys=sort,
-                segments=kwargs.get('segments'),
-            )
-        elif self.ga_ver == 4:
-            return self.ga4.report.run(
-                dimensions,
-                metrics,
-                dimension_filter=filter_d,
-                metric_filter=filter_m,
-                order_bys=sort,
-            )
+        try:
+            if self.ga_ver == 3:
+                return self.ga3.report.show(
+                    dimensions,
+                    metrics,
+                    dimension_filter=filter_d,
+                    metric_filter=filter_m,
+                    order_bys=sort,
+                    segments=kwargs.get('segments'),
+                )
+            elif self.ga_ver == 4:
+                return self.ga4.report.run(
+                    dimensions,
+                    metrics,
+                    dimension_filter=filter_d,
+                    metric_filter=filter_m,
+                    order_bys=sort,
+                )
+        except (errors.BadRequest, ValueError) as e:
+            print("抽出条件に問題があります。", e)
 
     """Download
     """
 
-    def save(self, df: pd.DataFrame, filename: str, quiet: bool = None):
+    def save(self, df: pd.core.frame.DataFrame, filename: str, quiet: bool = None):
         """データを保存：ファイル名に期間を付与。拡張子がなければ付与"""
         new_filename = utils.append_suffix_to_filename(filename, f"_{self.dates_as_string}")
         utils.save_df(df, new_filename)
@@ -220,7 +224,7 @@ class Launch(object):
         else:
             return new_filename
 
-    def download(self, df: pd.DataFrame, filename: str):
+    def download(self, df: pd.core.frame.DataFrame, filename: str):
         """データを保存し、Colabからダウンロード"""
         new_filename = self.save(df, filename, quiet=True)
         colabo.download(new_filename)
@@ -439,7 +443,7 @@ class Launch(object):
             # 一番細かい元データを得る
             try:
                 self.data['page_cid'] = self._get_page_cid()
-            except errors.BadRequest as e:
+            except errors.BadRequest:
                 print(f"対象ドメイン・ページの指定方法に問題があります：{self.conf}")
                 return
             except errors.NoDataReturned:
