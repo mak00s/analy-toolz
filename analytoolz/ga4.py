@@ -720,7 +720,7 @@ class MegatonGA4(object):
 
         def _request_report_api(self, offset: int, request: dict):
             if offset:
-                request["offset"] = offset
+                request.offset = offset
 
             total_rows, response = 0, None
             try:
