@@ -70,6 +70,10 @@ class MegatonGA4(object):
         dict = self.admin_client.parse_property_path(path)
         return dict.get('property')
 
+    def _build_client(self):
+        self.data_client = BetaAnalyticsDataClient(credentials=self.credentials)
+        self.admin_client = AnalyticsAdminServiceClient(credentials=self.credentials)
+
     def _update(self):
         """Returns account summaries accessible by the caller."""
         try:
@@ -95,6 +99,7 @@ class MegatonGA4(object):
             LOGGER.error("認証に失敗しました。")
             self.credentials = None
             LOGGER.warn(sys.exc_info()[1])
+            # raise e
         except Exception as e:
             type, value, _ = sys.exc_info()
             LOGGER.error(value)
@@ -120,25 +125,18 @@ class MegatonGA4(object):
     # retry(stop=stop_after_attempt(1), retry=retry_if_exception_type(ServiceUnavailable))
     def authorize(self):
         if not isinstance(self.credentials, Credentials):
-            LOGGER.error("The credentials given are in invalid format.")
             self.credentials = None
-            return
+            raise errors.BadCredentialFormat
 
-        self.build_client()
-
-        if not self._update():
-            return
+        self._build_client()
 
         if bool(set(self.credentials.scopes) & set(self.required_scopes)):
+            if not self._update():
+                return
             LOGGER.info(f"{self.this} launched!")
             return True
         else:
-            LOGGER.error("The given scopes don't meet requirements.")
             raise errors.BadCredentialScope(self.required_scopes)
-
-    def build_client(self):
-        self.data_client = BetaAnalyticsDataClient(credentials=self.credentials)
-        self.admin_client = AnalyticsAdminServiceClient(credentials=self.credentials)
 
     class Account(object):
         def __init__(self, parent):
@@ -272,7 +270,8 @@ class MegatonGA4(object):
                     })
                 return {'dimensions': dimensions, 'metrics': metrics}
 
-        def _get_custom_dimensions(self):
+        @property
+        def custom_dimensions(self):
             """Returns custom dimensions for the property."""
             try:
                 results_iterator = self.parent.admin_client.list_custom_dimensions(
@@ -292,7 +291,8 @@ class MegatonGA4(object):
                     results.append(dict)
                 return results
 
-        def _get_custom_metrics(self):
+        @property
+        def custom_metrics(self):
             """Returns custom metrics for the property."""
             try:
                 results_iterator = self.parent.admin_client.list_custom_metrics(
@@ -368,7 +368,7 @@ class MegatonGA4(object):
         def get_dimensions(self):
             self.get_available()
             if not self.api_custom_dimensions:
-                self.api_custom_dimensions = self._get_custom_dimensions()
+                self.api_custom_dimensions = self.custom_dimensions()
             # integrate data
             new = []
             for m in self.api_metadata['dimensions']:
@@ -386,7 +386,7 @@ class MegatonGA4(object):
         def get_metrics(self):
             self.get_available()
             if not self.api_custom_metrics:
-                self.api_custom_metrics = self._get_custom_metrics()
+                self.api_custom_metrics = self.custom_metrics()
             # integrate data
             new = []
             for m in self.api_metadata['metrics']:

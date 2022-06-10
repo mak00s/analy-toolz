@@ -7,10 +7,10 @@ import pandas as pd
 import sys
 
 from google.api_core.exceptions import ServiceUnavailable
+import panel as pn
 
 try:
     import itables
-
     itables.init_notebook_mode()
 except:
     if 'google.colab' in sys.modules:
@@ -18,9 +18,11 @@ except:
 
 from . import constants, errors, ga3, ga4, google_api, gsheet, utils, widget
 
+pn.extension()
+
 
 class Launch(object):
-    def __init__(self, json):
+    def __init__(self, json=None):
         """constructor"""
         self.json = json
         self.creds = None
@@ -33,6 +35,8 @@ class Launch(object):
         if 'google.colab' in sys.modules:
             self.is_colab = True
             colabo.init()
+        self.show = self.Show(self)
+        self.select = self.Select(self)
         if json:
             self.auth()
 
@@ -49,11 +53,65 @@ class Launch(object):
         except Exception as e:
             raise e
 
-    def show(self, df):
-        """Display pandas DaraFrame as a table"""
-        if self.is_colab:
-            return colabo.table(df)
-        if type(df) == pd.core.frame.DataFrame:
+    class Select:
+        def __init__(self, parent):
+            self.parent = parent
+
+        def credentials(self, dir: str):
+            print("　　↓APIを使う認証情報のJSONを以下から選択してください")
+            json_files = google_api.get_client_secrets_from_dir(dir)
+
+            groups = defaultdict(lambda: {})
+            groups['']['JSONを選択してください'] = ''
+
+            for s in json_files:
+                groups[s["type"]][s["filename"]] = s["path"]
+
+            menu = pn.widgets.Select(
+                name='Metrics',
+                groups=groups,
+            )
+
+            @pn.depends(menu.param.value, watch=True)
+            def test(menu):
+                print(menu.value)
+                return menu.value
+
+            display(menu, test)
+
+    class Show:
+        def __init__(self, parent):
+            self.parent = parent
+
+        @property
+        def ga(self):
+            return self.Ga(self)
+
+        class Ga:
+            def __init__(self, parent):
+                self.parent = parent
+
+            @property
+            def dimensions(self):
+                print("dimensions are:")
+                df = self.parent.parent.ga4.property.show('dimensions')
+                self.parent.table(df)
+
+            @property
+            def metrics(self):
+                print("metrics are:")
+                df = self.parent.parent.ga4.property.show('metrics')
+                self.parent.table(df)
+
+            @property
+            def properties(self):
+                print("properties are:")
+                df = self.parent.parent.ga4.property.show('info')
+                self.parent.table(df)
+
+        def table(self, df):
+            if self.parent.is_colab:
+                return colabo.table(df)
             try:
                 itables.show(df)
             except NameError:
@@ -67,72 +125,19 @@ class Launch(object):
     """Google Analytics
     """
 
-    def launch_ga4(self):
-        """GA4の準備"""
-        self.ga4 = ga4.MegatonGA4(self.creds)
-        self.select_ga4_property()
-
-    def select_ga4_property(self):
-        """GA4のアカウントとプロパティをメニューで選択"""
-        clear_output()
-        if self.ga4.accounts:
-            print("　　↓GA4のアカウントとプロパティを以下から選択してください")
-            menu1, menu2, _ = widget.create_ga_account_property_menu(self.ga4.accounts)
-
-            @interact(value=menu1)
-            def menu1_selected(value):
-                if value:
-                    self.ga4.account.select(value)
-                    prop = [d for d in self.ga4.accounts if d['id'] == value][0]['properties']
-                    menu2.options = [(n['name'], n['id']) for n in prop]
-                else:
-                    self.ga4.account.select(None)
-                    menu2.options = [('---', '')]
-
-            @interact(value=menu2)
-            def menu2_selected(value):
-                if value:
-                    self.ga4.property.select(value)
-                    print(f"　Property ID：{self.ga4.property.id}、",
-                          f"作成日：{self.ga4.property.created_time.strftime('%Y-%m-%d')}")
-                    self.ga_ver = 4
+    def launch_ga(self, ver: str = 3):
+        """Google Analyticsの準備"""
+        if int(ver) == 4:
+            self.ga4 = ga4.MegatonGA4(self.creds)
+            self.select_ga4()
         else:
-            print("権限が付与されたGA4アカウントが見つかりません。")
+            self.ga3 = ga3.MegatonUA(self.creds, credential_cache_file=google_api.get_cache_filename_from_json(self.json))
+            self.select_ga3()
 
-    def select_ga4_dimensions_and_metrics(self):
-        """JupyterLab（Google Colaboratory）用にメニューを表示"""
-        import panel as pn
+    def launch_ga4(self):
+        self.launch_ga(4)
 
-        groups_dim = defaultdict(lambda: {})
-        groups_dim[' ディメンションを選択してください']['---'] = ''
-        for i in self.ga4.property.get_dimensions():
-            groups_dim[i['category']][i['display_name']] = i['api_name']
-
-        dim = pn.widgets.Select(
-            # name='Dimensions',
-            groups=groups_dim,
-            value='eventName'
-        )
-
-        groups_met = defaultdict(lambda: {})
-        groups_met[' 指標を選択してください']['---'] = ''
-        for i in self.ga4.property.get_metrics():
-            groups_met[i['category']][i['display_name']] = i['api_name']
-
-        met = pn.widgets.Select(
-            # name='Metrics',
-            groups=groups_met,
-            value='eventCount'
-        )
-
-        return dim, met
-
-    def launch_ga(self):
-        """GA (UA)の準備"""
-        self.ga3 = ga3.MegatonUA(self.creds, credential_cache_file=google_api.get_cache_filename_from_json(self.json))
-        self.select_ga3_view()
-
-    def select_ga3_view(self):
+    def select_ga3(self):
         """GAのアカウントとプロパティとビューをメニューで選択"""
         clear_output()
         if self.ga3.accounts:
@@ -168,8 +173,61 @@ class Launch(object):
         else:
             print("権限が付与されたGAアカウントが見つかりません。")
 
+    def select_ga4(self):
+        """GA4のアカウントとプロパティをメニューで選択"""
+        clear_output()
+        if self.ga4.accounts:
+            print("　　↓GA4のアカウントとプロパティを以下から選択してください")
+            menu1, menu2, _ = widget.create_ga_account_property_menu(self.ga4.accounts)
+
+            @interact(value=menu1)
+            def menu1_selected(value):
+                if value:
+                    self.ga4.account.select(value)
+                    prop = [d for d in self.ga4.accounts if d['id'] == value][0]['properties']
+                    menu2.options = [(n['name'], n['id']) for n in prop]
+                else:
+                    self.ga4.account.select(None)
+                    menu2.options = [('---', '')]
+
+            @interact(value=menu2)
+            def menu2_selected(value):
+                if value:
+                    self.ga4.property.select(value)
+                    print(f"　Property ID：{self.ga4.property.id}、",
+                          f"作成日：{self.ga4.property.created_time.strftime('%Y-%m-%d')}")
+                    self.ga_ver = 4
+        else:
+            print("権限が付与されたGA4アカウントが見つかりません。")
+
+    def select_ga4_dimensions_and_metrics(self):
+        """JupyterLab（Google Colaboratory）用にレポート条件指定パネルを表示"""
+        groups_dim = defaultdict(lambda: {})
+        groups_dim[' ディメンションを選択してください']['---'] = ''
+        for i in self.ga4.property.get_dimensions():
+            groups_dim[i['category']][i['display_name']] = i['api_name']
+
+        dim = pn.widgets.Select(
+            # name='Dimensions',
+            groups=groups_dim,
+            value='eventName'
+        )
+
+        groups_met = defaultdict(lambda: {})
+        groups_met[' 指標を選択してください']['---'] = ''
+        for i in self.ga4.property.get_metrics():
+            groups_met[i['category']][i['display_name']] = i['api_name']
+
+        met = pn.widgets.Select(
+            # name='Metrics',
+            groups=groups_met,
+            value='eventCount'
+        )
+
+        return dim, met
+
     def set_dates(self, date1, date2):
-        """レポート期間をセット"""
+        """レポートの対象期間をセット"""
         if self.ga_ver == 3:
             self.ga3.report.set_dates(date1, date2)
         elif self.ga_ver == 4:
@@ -177,7 +235,8 @@ class Launch(object):
         print(f"GA{self.ga_ver}のレポート期間：{date1}〜{date2}")
 
     @property
-    def dates_as_string(self):
+    def dates(self):
+        """セットされているレポート対象期間を文字列に変換"""
         if self.ga_ver == 3:
             start_date = self.ga3.report.start_date
             end_date = self.ga3.report.end_date
@@ -215,19 +274,20 @@ class Launch(object):
     """
 
     def save(self, df: pd.core.frame.DataFrame, filename: str, quiet: bool = None):
-        """データを保存：ファイル名に期間を付与。拡張子がなければ付与"""
-        new_filename = utils.append_suffix_to_filename(filename, f"_{self.dates_as_string}")
+        """データフレームをCSV保存：ファイル名に期間を付与。拡張子がなければ付与"""
+        new_filename = utils.append_suffix_to_filename(filename, f"_{self.dates}")
         utils.save_df(df, new_filename)
-        if not quiet:
-            print(f"CSVファイル{new_filename}を保存しました。")
-            return
-        else:
+        if quiet:
             return new_filename
+        else:
+            print(f"CSVファイル{new_filename}を保存しました。")
 
-    def download(self, df: pd.core.frame.DataFrame, filename: str):
-        """データを保存し、Colabからダウンロード"""
+    def download(self, df: pd.core.frame.DataFrame, filename: str = None):
+        """データフレームを保存し、Google Colaboratoryからダウンロード"""
+        filename = filename if filename else "report"
         new_filename = self.save(df, filename, quiet=True)
-        colabo.download(new_filename)
+        if self.is_colab:
+            colabo.download(new_filename)
 
     """Google Sheets
     """
@@ -256,6 +316,7 @@ class Launch(object):
                 return True
 
     def select_sheet(self, sheet_name):
+        """開いたGoogle Sheetsのシートを選択"""
         try:
             name = self.gs.sheet.select(sheet_name)
             if name:

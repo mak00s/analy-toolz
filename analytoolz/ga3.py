@@ -24,7 +24,7 @@ class MegatonUA(ga4.MegatonGA4):
         super().__init__(credentials, **kwargs)
         self.view = self.View(self)
 
-    def build_client(self):
+    def _build_client(self):
         self.data_client = google_api.GoogleApi(
             "analyticsreporting",
             "v4",
@@ -117,7 +117,8 @@ class MegatonUA(ga4.MegatonGA4):
         def _get_metadata(self):
             return {'dimensions': [], 'metrics': []}
 
-        def _get_custom_dimensions(self):
+        @property
+        def custom_dimensions(self):
             """Returns custom dimensions for the property."""
             response = self.parent.admin_client.management().customDimensions().list(
                 accountId=self.parent.account.id,
@@ -134,7 +135,8 @@ class MegatonUA(ga4.MegatonGA4):
                 results.append(dict)
             return results
 
-        def _get_custom_metrics(self):
+        @property
+        def custom_metrics(self):
             """Returns custom metrics for the property."""
             response = self.parent.admin_client.management().customMetrics().list(
                 accountId=self.parent.account.id,
@@ -186,13 +188,13 @@ class MegatonUA(ga4.MegatonGA4):
         def get_dimensions(self):
             """Get custom dimension settings"""
             if not self.api_custom_dimensions:
-                self.api_custom_dimensions = self._get_custom_dimensions()
+                self.api_custom_dimensions = self.custom_dimensions()
             return self.api_custom_dimensions
 
         def get_metrics(self):
             """Get custom metrics settings"""
             if not self.api_custom_metrics:
-                self.api_custom_metrics = self._get_custom_metrics()
+                self.api_custom_metrics = self.custom_metrics()
             return self.api_custom_metrics
 
         def show(self, me: str = 'info', index_col: Optional[str] = None):
