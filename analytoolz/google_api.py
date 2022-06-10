@@ -14,6 +14,8 @@ from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
+_REQUIRED_CONFIG_KEYS = frozenset(("auth_uri", "token_uri", "client_id"))
+
 
 class GoogleApi(object):
     """Google API helper object"""
@@ -74,7 +76,7 @@ class GoogleApi(object):
                 pass
 
             if code == 403 and "rate limit exceeded" in message.lower():
-                self.log.info("rate limit reached, sleeping for %s seconds", 2 ** retry_count)
+                self.log.debug("rate limit reached, sleeping for %s seconds", 2 ** retry_count)
                 time.sleep(2 ** retry_count)
                 return self.retry(service_method, retry_count + 1)
             elif code == 403 and ("accessNotConfigured" in reason or 'disabled' in message):
@@ -191,9 +193,63 @@ def _run_auth_flow(client_secret_file: Optional[str], scopes: List[str], config:
     print("以下のURLをクリックし、Google認証後に表示される文字列をコピーし、")
     print(auth_url)
     time.sleep(4)
-    code = input("右の入力欄に貼り付けてエンターを押してください→")
+    code = input("右の入力欄に貼り付けてエンターを押してください →")
     flow.fetch_token(code=code)
     return flow.credentials
+
+
+def get_client_secrets_type(client_config):
+    """Gets a client type from client configuration loaded from a Google-format client secrets file.
+
+    Args:
+        client_config (Mapping[str, Any]): The client
+            configuration in the Google `client secrets`_ format.
+
+    Returns:
+        client_type [str]: The client type, either ``'service_account'`` or ``'web'`` or ``'installed'``
+    """
+    if client_config.get('type', '') == "service_account":
+        return "service_account"
+    elif "web" in client_config:
+        client_type = "web"
+    elif "installed" in client_config:
+        client_type = "installed"
+    else:
+        return
+    config = client_config[client_type]
+    if _REQUIRED_CONFIG_KEYS.issubset(config.keys()):
+        return client_type
+
+
+def get_client_secrets_type_from_file(client_secrets_file: str):
+    """Gets a client type from a Google client secrets file.
+
+        Args:
+            client_secrets_file (str): The path to the client secrets .json file.
+
+        Returns:
+            client_type [str]: The client type, either ``'service_account'`` or ``'web'`` or ``'installed'``
+        """
+    with open(client_secrets_file, "r") as json_file:
+        client_config = json.load(json_file)
+
+    return get_client_secrets_type(client_config)
+
+
+def get_client_secrets_from_dir(folder):
+    """Gets a list of valid client secrets json files from a directory recursively"""
+    client_secrets = []
+    for root, dirs, files in os.walk(folder):
+        for file in files:
+            if file.endswith('.json'):
+                client_type = get_client_secrets_type_from_file(os.path.join(root, file))
+                if client_type == 'service_account':
+                    # print(f"{file} ({client_type})")
+                    client_secrets.append({"type": client_type, "filename": file, "path": os.path.join(root, file)})
+                elif client_type in ['installed', 'web']:
+                    client_secrets.append({"type": "OAuth", "filename": file, "path": os.path.join(root, file)})
+
+    return client_secrets
 
 
 def get_credentials(json_file: Optional[str], scopes: List[str], cache_file: str = '', reset_cache=False):
