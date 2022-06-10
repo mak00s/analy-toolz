@@ -6,6 +6,59 @@ class Error(Exception):
     pass
 
 
+class ApiDisabled(Error):
+    """The API is not enabled for the GCP project being used"""
+
+    def __init__(self, message=None):
+        self.message = message or "The API is not enabled for the GCP project."
+
+
+class BadCredentialFormat(Error):
+    """Credentials given are not an instance of google.oauth2.credentials.Credentials"""
+
+    def __init__(self, message=None):
+        self.message = message or "The given credentials are not in the expected format."
+
+
+class BadCredentialScope(Error):
+    """Credentials have insufficient scopes to use API"""
+
+    def __init__(self, message=None, scopes=None):
+        self.message = message or "The given credentials have insufficient scopes to use the API."
+        self.scopes = scopes
+
+    def __str__(self):
+        return f'{self.message} Required scopes are: {self.scopes}'
+
+
+class BadPermission(Error):
+    """Permission is insufficient to perform API task"""
+
+    def __init__(self, message=None):
+        self.message = message or "Permission is insufficient to perform the API task."
+
+
+class BadRequest(Error):
+    """"Request given has errors"""
+
+    def __init__(self, message=None):
+        self.message = message or "There is an error in the request."
+
+
+class BadUrlFormat(Error):
+    """URL given is not in valid format"""
+
+    def __init__(self, message=None):
+        self.message = message or "The URL given is not in valid format."
+
+
+class UrlNotFound(Error):
+    """URL given is not found"""
+
+    def __init__(self, message=None):
+        self.message = message or "The URL requested is not found."
+
+
 class NoDataReturned(Error):
     """No data was returned from API."""
     pass
@@ -21,59 +74,6 @@ class PartialDataReturned(Error):
                                "clientId is included in the request's dimensions."):
         self.message = message
         super().__init__(self.message)
-
-
-class ApiDisabled(Error):
-    """The API is not enabled for the GCP project being used"""
-
-    def __init__(self, message=None):
-        self.message = message or "The API is not enabled for the GCP project."
-
-
-class BadCredentialScope(Error):
-    """Credentials have insufficient scopes to use API"""
-
-    def __init__(self, message=None, scopes=None):
-        self.message = message or "The given credentials have insufficient scopes to use the API."
-        self.scopes = scopes
-
-    def __str__(self):
-        return f'{self.message} Required scopes are: {self.scopes}'
-
-
-class BadRequest(Error):
-    """"Request given has errors"""
-
-    def __init__(self, message=None):
-        self.message = message or "There is an error in the request."
-
-
-class BadCredentialFormat(Error):
-    """Credentials given are not an instance of google.oauth2.credentials.Credentials"""
-
-    def __init__(self, message=None):
-        self.message = message or "The given credentials are not in the expected format."
-
-
-class BadUrlFormat(Error):
-    """URL given is not in valid format"""
-
-    def __init__(self, message=None):
-        self.message = message or "The URL given is not in valid format."
-
-
-class BadPermission(Error):
-    """Permission is insufficient to perform API task"""
-
-    def __init__(self, message=None):
-        self.message = message or "Permission is insufficient to perform the API task."
-
-
-class UrlNotFound(Error):
-    """URL given is not found"""
-
-    def __init__(self, message=None):
-        self.message = message or "The URL requested is not found."
 
 
 class SheetNotFound(Error):
