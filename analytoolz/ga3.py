@@ -43,14 +43,21 @@ class MegatonUA(ga4.MegatonGA4):
         try:
             response = self.admin_client.management().accountSummaries().list().execute()
         except err.HttpError as e:
-            if e.resp.status == 403:
-                LOGGER.error(f"GCPのプロジェクトでGoogle Analytics APIを有効化してください。")
-                raise errors.ApiDisabled
-        except Exception as e:
-            type, value, _ = sys.exc_info()
-            LOGGER.debug(f"type = {type}")
-            LOGGER.debug(f"value = {value}")
+            status = e.resp.status
+            data = json.loads(e.content.decode('utf-8'))
+            message = data['error']['message']
+            reason = data['error']['errors'][0]['reason']
+            if status == 403:
+                if 'not have any Google' in message:
+                    raise errors.NoDataReturned
+                elif 'accessNotConfigured' in reason or 'disabled' in message:
+                    raise errors.ApiDisabled(message, "Google Analytics API")
             raise e
+        # except Exception as e:
+        #     type, value, _ = sys.exc_info()
+        #     LOGGER.debug(f"type = {type}")
+        #     LOGGER.debug(f"value = {value}")
+        #     raise e
         if response:
             results = []
             for i in response.get('items', []):
@@ -70,6 +77,9 @@ class MegatonUA(ga4.MegatonGA4):
             return results
 
     class Account(ga4.MegatonGA4.Account):
+        def __init__(self, parent):
+            super().__init__(parent)
+
         def _update(self):
             response = self.parent.admin_client.management().webproperties().list(
                 accountId=self.id).execute()
@@ -90,6 +100,10 @@ class MegatonUA(ga4.MegatonGA4):
             self.properties = results
             return results
 
+        def _clear(self):
+            super()._clear()
+            self.parent.view.clear()
+
         @property
         def segments(self):
             """Returns built-in and custom segments for the account."""
@@ -108,11 +122,10 @@ class MegatonUA(ga4.MegatonGA4):
     class Property(ga4.MegatonGA4.Property):
         def __init__(self, parent):
             super().__init__(parent)
-            self.views = None
 
-        def _clear(self):
-            super()._clear()
-            self.views = None
+        def clear(self):
+            super().clear()
+            self.parent.view.clear()
 
         def _get_metadata(self):
             return {'dimensions': [], 'metrics': []}
@@ -155,7 +168,7 @@ class MegatonUA(ga4.MegatonGA4):
             return results
 
         def _update(self):
-            self._clear()
+            #self.clear()
             self.get_info()
             # self.get_available()  # Metadata API is not implemented
 
@@ -184,6 +197,18 @@ class MegatonUA(ga4.MegatonGA4):
                 results.append(dict)
             self.views = results
             # return results
+
+        def get_info(self):
+            """Get property data from parent account"""
+            dict = [p for p in self.parent.account.properties if p['id'] == self.id][0]
+            self.name = dict['name']
+            self.created_time = dict['created_time']
+            self.updated_time = dict['updated_time']
+            self.industry = dict['industry']
+            self.service_level = dict['service_level']
+            self.data_retention = dict.get('data_retention', '')
+            self.data_retention_reset_on_activity = dict.get('data_retention_reset_on_activity', '')
+            return dict
 
         def get_dimensions(self):
             """Get custom dimension settings"""
@@ -231,6 +256,7 @@ class MegatonUA(ga4.MegatonGA4):
             self.updated_time = None
 
         def clear(self):
+            self.id = None
             self.name = None
             self.currency = None
             self.time_zone = None
@@ -247,12 +273,11 @@ class MegatonUA(ga4.MegatonGA4):
             if id:
                 if id != self.id:
                     self.id = id
-                    self.update()
+                    self._update()
             else:
-                self.id = None
                 self.clear()
 
-        def update(self):
+        def _update(self):
             self.get_info()
 
         def get_info(self):

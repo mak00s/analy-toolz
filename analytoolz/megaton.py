@@ -1,83 +1,326 @@
-"""Megaton GA"""
+"""Megaton GA for Jupyter Notebook/Google Colaboratory"""
 
 from collections import defaultdict
 from ipywidgets import interact
 from IPython.display import clear_output
+import os
 import pandas as pd
+import param
 import sys
 
 from google.api_core.exceptions import ServiceUnavailable
 import panel as pn
 
+from . import constants, errors, ga3, ga4, google_api, gsheet, utils, widget
+
 try:
     import itables
+
     itables.init_notebook_mode()
 except:
     if 'google.colab' in sys.modules:
         from . import colabo
 
-from . import constants, errors, ga3, ga4, google_api, gsheet, utils, widget
-
 pn.extension()
 
 
+class Logger:
+    def __init__(self):
+        self.panel = None
+
+    def info(self, message: str):
+        if self.panel:
+            self.panel.value = message
+        else:
+            print(message)
+
+    def warn(self, message: str):
+        if self.panel:
+            self.panel.value = message
+        else:
+            print(message)
+
+
 class Launch(object):
-    def __init__(self, json=None):
+    def __init__(self, path: str = None, enable: list = None):
         """constructor"""
-        self.json = json
+        self.json = path
         self.creds = None
+        self.enabled = enable if enable else ['GS', 'UA', 'GA4']
+        self.ga = {}
         self.ga_ver = None
-        self.ga3 = None
-        self.ga4 = None
         self.gs = None
-        self.is_colab = False
+        self.on_colab = False
         self.content_analysis = None
-        if 'google.colab' in sys.modules:
-            self.is_colab = True
-            colabo.init()
-        self.show = self.Show(self)
         self.select = self.Select(self)
-        if json:
+        self.show = self.Show(self)
+        self.log = Logger()
+
+        if path and os.path.isfile(path):
+            # JSONを引数に入れて起動した場合はすぐに認証
             self.auth()
 
-    def auth(self):
-        """GCS認証"""
-        self.creds = google_api.get_credentials(self.json, constants.DEFAULT_SCOPES)
-        try:
-            self.ga4 = ga4.MegatonGA4(self.creds)
-        except ServiceUnavailable:
-            if 'invalid_grant' in str(sys.exc_info()[1]):
-                print(f"期限が切れたようなので、もう一度認証します。")
-                self.creds = google_api.get_credentials(self.json, constants.DEFAULT_SCOPES, reset_cache=True)
+        if 'google.colab' in sys.modules:
+            # Google Colaboratoryで実行された場合のみ
+            self.on_colab = True
+            colabo.init()
 
-        except Exception as e:
-            raise e
+    def auth(self, json=None):
+        """ OAuthまたはService AccountのJSONファイルで認証
+        """
+        # 起動時または引数のJSONファイルを使う
+        if json and os.path.isfile(json):
+            self.json = json
+
+        # 認証情報を作る
+        self.creds = google_api.get_credentials(self.json, constants.DEFAULT_SCOPES)
+
+        # GAのAPIを使う準備
+        for ver in self.enabled:
+            if ver in ['UA', 'GA4']:
+                try:
+                    self._build_ga_clients(ver)
+                except ServiceUnavailable:
+                    if 'invalid_grant' in str(sys.exc_info()[1]):
+                        self.log.info(f"期限が切れたようなので、もう一度認証します。")
+                        self.creds = google_api.get_credentials(self.json, constants.DEFAULT_SCOPES, reset_cache=True)
+                except errors.ApiDisabled as e:
+                    self.log.warn(f"GCPのConsoleで{e.api}を有効化してください。\n({e.message})")
+                except errors.NoDataReturned:
+                    self.log.warn(f"権限が付与された{ver}アカウントがありません。")
+
+    def _build_ga_clients(self, ver: str):
+        """ Google Analyticsの準備
+        """
+        if ver == 'GA4':
+            client = ga4.MegatonGA4(self.creds)
+            if client.accounts:
+                self.ga['4'] = client
+            else:
+                raise errors.NoDataReturned
+        if ver == 'UA':
+            self.ga['3'] = ga3.MegatonUA(self.creds,
+                                         credential_cache_file=google_api.get_cache_filename_from_json(self.json))
 
     class Select:
+        """ 選択するUIの構築と処理
+        """
+
         def __init__(self, parent):
             self.parent = parent
+            self.menu_creds = None
+            self.menu_ga = {}
+            self.menu_status = None
 
-        def credentials(self, dir: str):
-            print("　　↓APIを使う認証情報のJSONを以下から選択してください")
-            json_files = google_api.get_client_secrets_from_dir(dir)
+        def _get_json(self, dir: str):
+            """指定ディレクトリ配下にある有効フォーマットのJSONファイルを選択するメニューを作る"""
+            return google_api.get_client_secrets_from_dir(dir)
 
+        def _get_accounts(self, ver: str):
+            """ GAアカウントを得る
+            """
+            # 認証済みか確認
+            if not ver in self.parent.ga.keys():
+                return {'アカウントが見つかりません': ''}
+
+            options = {'選択してください': ''}
+            # 取得済みのアカウント一覧を得る
+            for d in self.parent.ga[ver].accounts:
+                options[d['name']] = d['id']
+
+            return options
+
+        def _get_properties(self, account_id: str, ver: str):
+            """ 指定GAアカウントに紐付くGAプロパティを得る
+            """
+            self.parent.ga[ver].account.select(account_id)
+            self.parent.ga_ver = ver
+            properties = [d for d in self.parent.ga[ver].accounts if d['id'] == account_id][0]['properties']
+            return {d['name']: d['id'] for d in properties}
+
+        def _get_views(self, property_id: str, ver: str):
+            """ 指定GAプロパティに紐付くGAビューを得る
+            """
+            self.parent.ga[ver].property.select(property_id)
+            self.parent.ga_ver = ver
+            if ver == '3':
+                views = [d for d in self.parent.ga[ver].property.views if d['property_id'] == property_id]
+                return {d['name']: d['id'] for d in views}
+
+        def _get_creds_menu(self, json_files):
+            """ JSONファイルを選択するメニューを作る
+            """
             groups = defaultdict(lambda: {})
-            groups['']['JSONを選択してください'] = ''
+            groups['']['JSONファイルを選択してください'] = ''
 
             for s in json_files:
                 groups[s["type"]][s["filename"]] = s["path"]
 
-            menu = pn.widgets.Select(
-                name='Metrics',
-                groups=groups,
+            return pn.widgets.Select(name='API用の認証情報', groups=groups)
+
+        class GaSelector:
+            """ GAのアカウント・プロパティ（・ビュー）を選択するUI
+            """
+
+            def __init__(self, parent, ver: str):
+                self.parent = parent
+                self.ver = ver
+                self.accounts = self._get_account_menu()
+                self.properties = self._get_properties_menu()
+                self.views = self._get_views_menu()
+
+            def _get_account_menu(self):
+                if self.ver == '3':
+                    return widget.create_blank_menu('GAアカウント')
+                elif self.ver == '4':
+                    return widget.create_blank_menu('GA4アカウント')
+
+            def _get_properties_menu(self):
+                if self.ver == '3':
+                    return widget.create_blank_menu('GAプロパティ')
+                elif self.ver == '4':
+                    return widget.create_blank_menu('GA4プロパティ')
+
+            def _get_views_menu(self):
+                if self.ver == '3':
+                    return widget.create_blank_menu('GAビュー')
+                elif self.ver == '4':
+                    return widget.create_blank_menu('')
+
+        def ga(self):
+            """ 認証情報とGAアカウントを選択するパネルを表示
+            """
+            # メッセージ表示用
+            self.menu_status = pn.widgets.StaticText()
+            self.parent.log.panel = self.menu_status
+
+            # GA選択メニュー
+            self.menu_ga['3'] = self.GaSelector(self, '3')
+            self.menu_ga['4'] = self.GaSelector(self, '4')
+            ga_tabs = pn.Tabs(
+                ('Universal Analytics', pn.Row(
+                    self.menu_ga['3'].accounts, self.menu_ga['3'].properties, self.menu_ga['3'].views
+                )),
+                ('Google Analytics 4', pn.Row(
+                    self.menu_ga['4'].accounts, self.menu_ga['4'].properties
+                )),
+                active=1,
+                dynamic=True,
+                # background='#f0f0f0',
+                visible=False,
+                # height=100
             )
 
-            @pn.depends(menu.param.value, watch=True)
-            def test(menu):
-                print(menu.value)
-                return menu.value
+            def _reset_ga_menu():
+                """ アカウントメニューの選択肢を更新
+                """
+                order = ['4', '3'] if ga_tabs.active == 1 else ['3', '4']
+                for ver in order:
+                    self.menu_ga[ver].accounts.options = {}
+                    self.menu_ga[ver].properties.options = {}
+                self.menu_ga['3'].views.options = {}
+                # reset GA clients
+                self.parent.ga = {}
 
-            display(menu, test)
+            def _show_ga_tabs():
+                """ GA選択UIを表示する
+                """
+                ga_tabs.visible = True
+                for ver in ['4', '3']:
+                    self.menu_ga[ver].accounts.loading = True
+                    self.menu_ga[ver].properties.disabled = True
+                self.menu_ga['3'].views.disabled = True
+
+            def _update_ga_menu():
+                """ update account menu options
+                """
+                order = ['4', '3'] if ga_tabs.active == 1 else ['3', '4']
+                for ver in order:
+
+                    @pn.depends(self.menu_ga[ver].accounts.param.value, watch=True)
+                    def _update_property(account_id):
+                        if account_id:
+                            ver = '4' if ga_tabs.active == 1 else '3'
+                            self.menu_ga[ver].properties.loading = True
+                            self.parent.ga[ver].account.select(account_id)
+                            properties = self._get_properties(account_id, ver)
+                            self.menu_ga[ver].properties.options = properties
+                            self.menu_ga[ver].properties.loading = False
+                            self.menu_ga[ver].properties.disabled = False
+
+                    @pn.depends(self.menu_ga[ver].properties.param.value, watch=True)
+                    def _update_view(property_id):
+                        if property_id:
+                            ver = '4' if ga_tabs.active == 1 else '3'
+                            self.parent.ga[ver].property.select(property_id)
+                            if ver == '3':
+                                self.menu_ga[ver].views.loading = True
+                                views = self._get_views(property_id, '3')
+                                self.menu_ga[ver].views.options = views
+                                self.menu_ga[ver].views.loading = False
+                                self.menu_ga[ver].views.disabled = False
+
+                    # 紐付くアカウントを得る
+                    accounts = self._get_accounts(ver)
+                    # メニューに反映
+                    self.menu_ga[ver].accounts.loading = False
+                    self.menu_ga[ver].accounts.disabled = False
+                    self.menu_ga[ver].accounts.options = accounts
+
+            # JSON選択メニュー
+            if not self.parent.creds and os.path.isdir(self.parent.json):
+                json_files = self._get_json(self.parent.json)
+                self.menu_creds = self._get_creds_menu(json_files)
+
+                @pn.depends(self.menu_creds.param.value, watch=True)
+                def _load_json(json_file):
+                    """ JSON選択時の処理
+                    """
+                    if os.path.isfile(json_file):
+                        # GA選択タブを表示
+                        _show_ga_tabs()
+                        _reset_ga_menu()
+                        # 選択されたJSONで認証
+                        self.parent.auth(json_file)
+                        # メニュー選択肢を更新
+                        _update_ga_menu()
+            elif self.parent.creds:
+                # GA選択タブを表示
+                _show_ga_tabs()
+                # メニュー選択肢を更新
+                _update_ga_menu()
+
+            return pn.Column(
+                pn.Row(self.menu_creds),
+                ga_tabs,
+                self.menu_status
+            )
+
+    def select_ga4_dimensions_and_metrics(self):
+        """JupyterLab（Google Colaboratory）用にレポート条件指定パネルを表示"""
+        groups_dim = defaultdict(lambda: {})
+        groups_dim[' ディメンションを選択してください']['---'] = ''
+        for i in self.ga4.property.get_dimensions():
+            groups_dim[i['category']][i['display_name']] = i['api_name']
+
+        dim = pn.widgets.Select(
+            # name='Dimensions',
+            groups=groups_dim,
+            value='eventName'
+        )
+
+        groups_met = defaultdict(lambda: {})
+        groups_met[' 指標を選択してください']['---'] = ''
+        for i in self.ga4.property.get_metrics():
+            groups_met[i['category']][i['display_name']] = i['api_name']
+
+        met = pn.widgets.Select(
+            # name='Metrics',
+            groups=groups_met,
+            value='eventCount'
+        )
+
+        return dim, met
 
     class Show:
         def __init__(self, parent):
@@ -110,7 +353,7 @@ class Launch(object):
                 self.parent.table(df)
 
         def table(self, df):
-            if self.parent.is_colab:
+            if self.parent.on_colab:
                 return colabo.table(df)
             try:
                 itables.show(df)
@@ -125,106 +368,31 @@ class Launch(object):
     """Google Analytics
     """
 
-    def launch_ga(self, ver: str = 3):
-        """Google Analyticsの準備"""
-        if int(ver) == 4:
-            self.ga4 = ga4.MegatonGA4(self.creds)
-            self.select_ga4()
-        else:
-            self.ga3 = ga3.MegatonUA(self.creds, credential_cache_file=google_api.get_cache_filename_from_json(self.json))
-            self.select_ga3()
-
-    def launch_ga4(self):
-        self.launch_ga(4)
-
-    def select_ga3(self):
-        """GAのアカウントとプロパティとビューをメニューで選択"""
-        clear_output()
-        if self.ga3.accounts:
-            print("　　↓GAのアカウントとプロパティを以下から選択してください")
-            menu1, menu2, menu3 = widget.create_ga_account_property_menu(self.ga3.accounts)
-
-            @interact(value=menu1)
-            def menu1_selected(value):
-                if value:
-                    self.ga3.account.select(value)
-                    opt = [d for d in self.ga3.accounts if d['id'] == value][0]['properties']
-                    menu2.options = [(n['name'], n['id']) for n in opt]
-                else:
-                    self.ga3.account.select(None)
-                    menu2.options = [('---', '')]
-                    menu3.options = [('---', '')]
-
-            @interact(value=menu2)
-            def menu2_selected(value):
-                if value:
-                    self.ga3.property.select(value)
-                    menu3.options = [(d['name'], d['id']) for d in self.ga3.property.views if d['property_id'] == value]
-                else:
-                    self.ga3.property.select(None)
-                    menu3.options = [('---', '')]
-
-            @interact(value=menu3)
-            def menu3_selected(value):
-                if value:
-                    self.ga3.view.select(value)
-                    print(f"View ID：{self.ga3.view.id}、作成日：{self.ga3.view.created_time}")
-                    self.ga_ver = 3
-        else:
-            print("権限が付与されたGAアカウントが見つかりません。")
-
-    def select_ga4(self):
-        """GA4のアカウントとプロパティをメニューで選択"""
-        clear_output()
-        if self.ga4.accounts:
-            print("　　↓GA4のアカウントとプロパティを以下から選択してください")
-            menu1, menu2, _ = widget.create_ga_account_property_menu(self.ga4.accounts)
-
-            @interact(value=menu1)
-            def menu1_selected(value):
-                if value:
-                    self.ga4.account.select(value)
-                    prop = [d for d in self.ga4.accounts if d['id'] == value][0]['properties']
-                    menu2.options = [(n['name'], n['id']) for n in prop]
-                else:
-                    self.ga4.account.select(None)
-                    menu2.options = [('---', '')]
-
-            @interact(value=menu2)
-            def menu2_selected(value):
-                if value:
-                    self.ga4.property.select(value)
-                    print(f"　Property ID：{self.ga4.property.id}、",
-                          f"作成日：{self.ga4.property.created_time.strftime('%Y-%m-%d')}")
-                    self.ga_ver = 4
-        else:
-            print("権限が付与されたGA4アカウントが見つかりません。")
-
-    def select_ga4_dimensions_and_metrics(self):
-        """JupyterLab（Google Colaboratory）用にレポート条件指定パネルを表示"""
-        groups_dim = defaultdict(lambda: {})
-        groups_dim[' ディメンションを選択してください']['---'] = ''
-        for i in self.ga4.property.get_dimensions():
-            groups_dim[i['category']][i['display_name']] = i['api_name']
-
-        dim = pn.widgets.Select(
-            # name='Dimensions',
-            groups=groups_dim,
-            value='eventName'
-        )
-
-        groups_met = defaultdict(lambda: {})
-        groups_met[' 指標を選択してください']['---'] = ''
-        for i in self.ga4.property.get_metrics():
-            groups_met[i['category']][i['display_name']] = i['api_name']
-
-        met = pn.widgets.Select(
-            # name='Metrics',
-            groups=groups_met,
-            value='eventCount'
-        )
-
-        return dim, met
+    # def select_ga4(self):
+    #     """GA4のアカウントとプロパティをメニューで選択"""
+    #     clear_output()
+    #     if self.ga4.accounts:
+    #         print("　　↓GA4のアカウントとプロパティを以下から選択してください")
+    #         menu1, menu2, _ = widget.create_ga_account_property_menu(self.ga4.accounts)
+    #
+    #         @interact(value=menu1)
+    #         def menu1_selected(value):
+    #             self.ga4.account.select(value)
+    #             if value:
+    #                 prop = [d for d in self.ga4.accounts if d['id'] == value][0]['properties']
+    #                 menu2.options = [(n['name'], n['id']) for n in prop]
+    #             else:
+    #                 menu2.options = [('---', '')]
+    #
+    #         @interact(value=menu2)
+    #         def menu2_selected(value):
+    #             if value:
+    #                 self.ga4.property.select(value)
+    #                 print(f"　Property ID：{self.ga4.property.id}、",
+    #                       f"作成日：{self.ga4.property.created_time.strftime('%Y-%m-%d')}")
+    #                 self.ga_ver = 4
+    #     else:
+    #         print("権限が付与されたGA4アカウントが見つかりません。")
 
     def set_dates(self, date1, date2):
         """レポートの対象期間をセット"""
@@ -286,7 +454,7 @@ class Launch(object):
         """データフレームを保存し、Google Colaboratoryからダウンロード"""
         filename = filename if filename else "report"
         new_filename = self.save(df, filename, quiet=True)
-        if self.is_colab:
+        if self.on_colab:
             colabo.download(new_filename)
 
     """Google Sheets

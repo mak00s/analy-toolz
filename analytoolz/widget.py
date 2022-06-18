@@ -2,6 +2,7 @@
 Functions for widgets (forms)
 """
 
+import panel as pn
 from ipywidgets import Dropdown
 from typing import List, Tuple
 
@@ -29,3 +30,9 @@ def create_ga_account_property_menu(accounts):
     menu2 = dropdown_menu('Property', '---')
     menu3 = dropdown_menu('View', '---')
     return menu1, menu2, menu3
+
+
+def create_blank_menu(name: str = None):
+    """disable化された空のセレクトメニューを作る"""
+    menu = pn.widgets.Select(name=name, options={}, disabled=True)
+    return menu

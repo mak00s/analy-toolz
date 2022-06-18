@@ -34,6 +34,7 @@ from google.analytics.data_v1beta.types import RunReportResponse
 from google.api_core.exceptions import PermissionDenied
 from google.api_core.exceptions import ServiceUnavailable
 from google.api_core.exceptions import Unauthenticated
+from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 # from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
@@ -79,15 +80,13 @@ class MegatonGA4(object):
         try:
             results_iterator = self.admin_client.list_account_summaries()
         except PermissionDenied as e:
-            LOGGER.error("APIを使う権限がありません。")
             message = getattr(e, 'message', repr(e))
             LOGGER.warn(message)
             m = re.search(r'reason: "([^"]+)', str(sys.exc_info()[1]))
             if m:
                 reason = m.group(1)
                 if reason == 'SERVICE_DISABLED':
-                    LOGGER.error("GCPのプロジェクトでAdmin APIを有効化してください。")
-                    raise error.ApiDisabled
+                    raise errors.ApiDisabled(message, 'Google Analytics Admin API')
         except ServiceUnavailable as e:
             value = str(sys.exc_info()[1])
             m = re.search(r"error: \('([^:']+): ([^']+)", value)
@@ -95,14 +94,14 @@ class MegatonGA4(object):
                 LOGGER.error(f"認証の期限が切れています。{m.group(2)}")
                 self.credentials = None
             raise e
-        except Unauthenticated as e:
+        except Unauthenticated:
             LOGGER.error("認証に失敗しました。")
             self.credentials = None
             LOGGER.warn(sys.exc_info()[1])
-            # raise e
+            # raise
         except Exception as e:
-            type, value, _ = sys.exc_info()
-            LOGGER.error(value)
+            # type, value, _ = sys.exc_info()
+            # LOGGER.error(value)
             raise e
         else:
             results = []
@@ -124,7 +123,7 @@ class MegatonGA4(object):
 
     # retry(stop=stop_after_attempt(1), retry=retry_if_exception_type(ServiceUnavailable))
     def authorize(self):
-        if not isinstance(self.credentials, Credentials):
+        if not isinstance(self.credentials, (Credentials, service_account.Credentials)):
             self.credentials = None
             raise errors.BadCredentialFormat
 
@@ -143,6 +142,11 @@ class MegatonGA4(object):
             self.parent = parent
             self.id = None
             self.properties = None
+
+        def _clear(self):
+            self.id = None
+            self.properties = None
+            self.parent.property.clear()
 
         def _update(self):
             """Update summaries of all properties for the account"""
@@ -184,7 +188,7 @@ class MegatonGA4(object):
                     self.id = id
                     self._update()
             else:
-                self.parent.property.id = None
+                self._clear()
 
         def show(self, index_col: str = 'id'):
             res = self.properties
@@ -198,12 +202,12 @@ class MegatonGA4(object):
             self.parent = parent
             self.id = None
             self.name = None
+            self.created_time = None
+            self.updated_time = None
             self.time_zone = None
             self.currency = None
             self.industry = None
             self.service_level = None
-            self.created_time = None
-            self.updated_time = None
             self.data_retention = None
             self.data_retention_reset_on_activity = None
             self.api_custom_dimensions = None
@@ -212,7 +216,8 @@ class MegatonGA4(object):
             self.dimensions = None
             self.metrics = None
 
-        def _clear(self):
+        def clear(self):
+            self.id = None
             self.name = None
             self.created_time = None
             self.updated_time = None
@@ -339,8 +344,7 @@ class MegatonGA4(object):
                     self.id = id
                     self._update()
             else:
-                self.id = None
-                self._clear()
+                self.clear()
 
         def get_info(self):
             """Get property data from parent account"""
@@ -350,12 +354,9 @@ class MegatonGA4(object):
             self.updated_time = dict['updated_time']
             self.industry = dict['industry']
             self.service_level = dict['service_level']
-            self.data_retention = dict.get('data_retention', '')
-            self.data_retention_reset_on_activity = dict.get('data_retention_reset_on_activity', '')
-            if not self.data_retention:
-                dict2 = self._get_data_retention()
-                dict['data_retention'] = dict2['data_retention']
-                dict['data_retention_reset_on_activity'] = dict2['reset_user_data_on_new_activity']
+            dict2 = self._get_data_retention()
+            dict['data_retention'] = dict2['data_retention']
+            dict['data_retention_reset_on_activity'] = dict2['reset_user_data_on_new_activity']
             self.time_zone = dict.get('time_zone', None)  # GA4 only
             self.currency = dict.get('currency', None)  # GA4 only
             return dict

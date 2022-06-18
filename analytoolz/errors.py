@@ -9,8 +9,9 @@ class Error(Exception):
 class ApiDisabled(Error):
     """The API is not enabled for the GCP project being used"""
 
-    def __init__(self, message=None):
-        self.message = message or "The API is not enabled for the GCP project."
+    def __init__(self, message=None, api=None):
+        self.message = message or f"The API {api} is not enabled for the GCP project."
+        self.api = api
 
 
 class BadCredentialFormat(Error):

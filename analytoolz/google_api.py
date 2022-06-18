@@ -189,11 +189,15 @@ def _run_auth_flow(client_secret_file: Optional[str], scopes: List[str], config:
             scopes=scopes,
             redirect_uri="urn:ietf:wg:oauth:2.0:oob"
         )
+    authorization_prompt_message = "URLをクリックし、Google認証後に表示される文字列をコピーし、{url}"
+    authorization_code_message = "右の入力欄に貼り付けてエンターを押してください →"
+    #flow.run_console(authorization_prompt_message=authorization_prompt_message, authorization_code_message=authorization_code_message)
     auth_url, _ = flow.authorization_url(prompt="consent")
-    print("以下のURLをクリックし、Google認証後に表示される文字列をコピーし、")
-    print(auth_url)
+    # print("以下のURLをクリックし、Google認証後に表示される文字列をコピーし、")
+    # print(auth_url)
+    print(authorization_prompt_message.format(url=auth_url))
     time.sleep(4)
-    code = input("右の入力欄に貼り付けてエンターを押してください →")
+    code = input(authorization_code_message)
     flow.fetch_token(code=code)
     return flow.credentials
 
